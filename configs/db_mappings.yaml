@@ -1,0 +1,22 @@
+db_mappings:
+  # ============================================================
+  # DB1 - 状态数据块 (Modbus 通信状态)
+  # ============================================================
+  - db_number: 1
+    db_name: "MBValueTemp"
+    total_size: 56
+    config_file: "configs/config_status.yaml"
+    parser_class: "StatusParser"
+    enabled: true
+    description: "通信模块状态 + 12个电表状态 + 1个压力表状态"
+
+  # ============================================================
+  # DB2 - 数据块 (传感器实际数据)
+  # ============================================================
+  - db_number: 2
+    db_name: "Data_DB"
+    total_size: 338
+    config_file: "configs/config_waterpump.yaml"
+    parser_class: "WaterpumpParser"
+    enabled: true
+    description: "6个电表 + 1个压力表 (真实PLC结构)"

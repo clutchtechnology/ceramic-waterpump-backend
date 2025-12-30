@@ -1,0 +1,17 @@
+.idea/
+__pycache__/
+.pytest_cache/
+*.pyc
+.env
+.DS_Store
+build/
+dist/
+*.egg-info/
+venv/
+env/
+.vscode/
+
+# 本地缓存数据库
+data/cache.db
+data/*.db
+data/*.db-*

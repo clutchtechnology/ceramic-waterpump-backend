@@ -1,0 +1,9 @@
+# 核心依赖（Docker构建必需 - 仅使用workshop已有的包）
+fastapi>=0.95
+uvicorn[standard]>=0.20
+influxdb-client>=1.36.1
+pydantic-settings>=1.0
+
+# 以下依赖已注释（离线包不含或Mock模式不需要）
+# psutil>=5.9.0  # 系统监控，Mock模式可选
+# snap7>=1.3  # PLC通信，Mock模式不需要

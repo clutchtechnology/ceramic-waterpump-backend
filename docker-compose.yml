@@ -1,0 +1,89 @@
+services:
+  # InfluxDB 时序数据库
+  influxdb:
+    image: influxdb:2.7
+    container_name: waterpump-influxdb
+    restart: unless-stopped
+    ports:
+      - '8087:8086'  # 外部端口8087，避免与其他项目冲突
+    volumes:
+      - D:/docker-data/waterpump/influxdb-data:/var/lib/influxdb2
+      - D:/docker-data/waterpump/influxdb-config:/etc/influxdb2
+    environment:
+      - DOCKER_INFLUXDB_INIT_MODE=setup
+      - DOCKER_INFLUXDB_INIT_USERNAME=admin
+      - DOCKER_INFLUXDB_INIT_PASSWORD=admin_password
+      - DOCKER_INFLUXDB_INIT_ORG=waterpump
+      - DOCKER_INFLUXDB_INIT_BUCKET=sensor_data
+      - DOCKER_INFLUXDB_INIT_ADMIN_TOKEN=waterpump-token
+    networks:
+      - waterpump-network
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+
+  # Python Backend (Mock模式 - 默认配置)
+  backend:
+    build: .
+    container_name: waterpump-backend
+    restart: unless-stopped
+    ports:
+      - '8081:8081'
+    depends_on:
+      - influxdb
+    volumes:
+      - .:/app
+      - ./configs:/app/configs
+      - ./data:/app/data
+    environment:
+      - PYTHONUNBUFFERED=1
+      - INFLUX_URL=http://influxdb:8086
+      - INFLUX_TOKEN=waterpump-token
+      - INFLUX_ORG=waterpump
+      - INFLUX_BUCKET=sensor_data
+      - SERVER_PORT=8081
+      - USE_MOCK_DATA=true
+      - ENABLE_POLLING=true
+      - ENABLE_MOCK_POLLING=true  # Mock模式下启用轮询（模拟PLC→解析→存储流程）
+    networks:
+      - waterpump-network
+    profiles:
+      - default
+      - mock
+
+  # Python Backend (真实PLC模式)
+  backend-real:
+    build: .
+    container_name: waterpump-backend
+    restart: unless-stopped
+    ports:
+      - '8081:8081'
+    depends_on:
+      - influxdb
+    volumes:
+      - .:/app
+      - ./configs:/app/configs
+      - ./data:/app/data
+    environment:
+      - PYTHONUNBUFFERED=1
+      - INFLUX_URL=http://influxdb:8086
+      - INFLUX_TOKEN=waterpump-token
+      - INFLUX_ORG=waterpump
+      - INFLUX_BUCKET=sensor_data
+      - SERVER_PORT=8081
+      - USE_MOCK_DATA=false
+      - USE_REAL_PLC=true
+      - ENABLE_POLLING=true
+    networks:
+      - waterpump-network
+    profiles:
+      - production
+
+networks:
+  waterpump-network:
+    driver: bridge
+
+volumes:
+  influxdb-storage:
+  influxdb-config:

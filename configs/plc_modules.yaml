@@ -1,0 +1,89 @@
+plc_modules:
+  - module_type: "ElectricityMeter"
+    size: 56
+    description: "三相电表模块 (6个，每个56字节)"
+    fields:
+      - name: "Uab_0"
+        display_name: "AB线电压"
+        unit: "V"
+        data_type: "Real"
+        offset: 0
+      - name: "Uab_1"
+        display_name: "BC线电压"
+        unit: "V"
+        data_type: "Real"
+        offset: 4
+      - name: "Uab_2"
+        display_name: "CA线电压"
+        unit: "V"
+        data_type: "Real"
+        offset: 8
+      
+      - name: "Ua_0"
+        display_name: "A相电压"
+        unit: "V"
+        data_type: "Real"
+        offset: 12
+      - name: "Ua_1"
+        display_name: "B相电压"
+        unit: "V"
+        data_type: "Real"
+        offset: 16
+      - name: "Ua_2"
+        display_name: "C相电压"
+        unit: "V"
+        data_type: "Real"
+        offset: 20
+      
+      - name: "I_0"
+        display_name: "A相电流"
+        unit: "A"
+        data_type: "Real"
+        offset: 24
+      - name: "I_1"
+        display_name: "B相电流"
+        unit: "A"
+        data_type: "Real"
+        offset: 28
+      - name: "I_2"
+        display_name: "C相电流"
+        unit: "A"
+        data_type: "Real"
+        offset: 32
+      
+      - name: "Pt"
+        display_name: "总有功功率"
+        unit: "kW"
+        data_type: "Real"
+        offset: 36
+      - name: "Pa"
+        display_name: "A相功率"
+        unit: "kW"
+        data_type: "Real"
+        offset: 40
+      - name: "Pb"
+        display_name: "B相功率"
+        unit: "kW"
+        data_type: "Real"
+        offset: 44
+      - name: "Pc"
+        display_name: "C相功率"
+        unit: "kW"
+        data_type: "Real"
+        offset: 48
+      
+      - name: "ImpEp"
+        display_name: "正向有功电能"
+        unit: "kWh"
+        data_type: "Real"
+        offset: 52
+
+  - module_type: "PressureSensor"
+    size: 2
+    description: "压力传感器模块 (1个，2字节)"
+    fields:
+      - name: "pressure_raw"
+        display_name: "压力原始值"
+        unit: "0.01kPa"
+        data_type: "Word"
+        offset: 0
