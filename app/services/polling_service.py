@@ -6,15 +6,15 @@
 #   2. 批量写入 (30 次轮询缓存后批量写入)
 #   3. 本地降级缓存 (InfluxDB 故障时写入 SQLite)
 #   4. 自动重试机制 (缓存数据自动重试)
-#   5. Mock模式支持 (use_mock_data=True时自动禁用轮询)
+#   5. Mock模式支持 (使用MockDataGenerator生成模拟数据)
 # ============================================================
 
 import asyncio
-import random
-import struct
+import logging
 import traceback
+from pathlib import Path
 from datetime import datetime, timezone
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Tuple
 from collections import deque
 
 from config import get_settings
@@ -23,13 +23,15 @@ from app.core.local_cache import get_local_cache, CachedPoint
 from app.plc.plc_manager import get_plc_manager
 from app.tools.converter_elec import ElectricityConverter
 from app.tools.converter_pressure import PressureConverter
-from app.tools.converter_status import StatusConverter
-from app.plc.parser_status import parse_status_db, is_device_comm_ok, DEVICE_STATUS_MAP
 from app.plc.parser_waterpump import parse_waterpump_db
 from app.core.threshold_store import check_alarm, check_pressure_alarm, get_pump_threshold, get_pressure_threshold
 from app.core.alarm_store import log_alarm
 
+logger = logging.getLogger(__name__)
 settings = get_settings()
+
+# Mock数据生成器（延迟导入，仅在mock模式下使用）
+_mock_generator = None
 
 _poll_task: Optional[asyncio.Task] = None
 _retry_task: Optional[asyncio.Task] = None
@@ -38,10 +40,8 @@ _is_running = False
 # 转换器实例
 _elec_conv = ElectricityConverter()
 _pres_conv = PressureConverter()
-_status_conv = StatusConverter()
 
-# 最新状态缓存 (供 API 查询)
-_latest_status: Dict[str, Any] = {}
+# 最新数据缓存 (供 API 查询)
 _latest_data: Dict[str, Any] = {}
 
 # 批量写入缓存 (30 次轮询)
@@ -62,92 +62,62 @@ _stats = {
 
 
 # ============================================================
-# 模拟数据生成 (开发/测试用)
+# PLC 数据读取函数 (支持 Mock 模式)
 # ============================================================
-def _generate_mock_db1() -> bytes:
-    """生成模拟的 DB1 状态数据 (56 字节)"""
-    data = bytearray(56)
+async def _read_plc_db2() -> Tuple[bool, bytes, str]:
+    """读取 PLC DB2 数据块
     
-    for device_id, offset in DEVICE_STATUS_MAP.items():
-        # 95% 概率通信正常
-        r = random.random()
-        if r < 0.95:
-            data[offset] = 0x01  # DONE=1
-            data[offset+2:offset+4] = struct.pack(">H", 0)
-        elif r < 0.98:
-            data[offset] = 0x02  # BUSY=1
-            data[offset+2:offset+4] = struct.pack(">H", 0)
-        else:
-            data[offset] = 0x04  # ERROR=1
-            data[offset+2:offset+4] = struct.pack(">H", 0x8001)
-    
-    return bytes(data)
-
-
-def _generate_mock_db2() -> bytes:
-    """生成模拟的 DB2 数据 (338 字节)"""
-    data = bytearray(338)
-    
-    for idx in range(6):
-        offset = idx * 56
-        base_voltage = 220.0 + random.uniform(-5, 5)
-        base_line_voltage = 380.0 + random.uniform(-5, 5)
-        base_current = 10.0 + idx * 2 + random.uniform(-2, 2)
-        
-        meter_values = [
-            base_line_voltage + random.uniform(-2, 2),
-            base_line_voltage + random.uniform(-2, 2),
-            base_line_voltage + random.uniform(-2, 2),
-            base_voltage + random.uniform(-2, 2),
-            base_voltage + random.uniform(-2, 2),
-            base_voltage + random.uniform(-2, 2),
-            base_current + random.uniform(-1, 1),
-            base_current + random.uniform(-1, 1),
-            base_current + random.uniform(-1, 1),
-            base_current * 3 * base_voltage / 1000.0,
-            base_current * base_voltage / 1000.0,
-            base_current * base_voltage / 1000.0,
-            base_current * base_voltage / 1000.0,
-            1000.0 + idx * 100 + random.uniform(0, 10),
-        ]
-        
-        for i, val in enumerate(meter_values):
-            data[offset + i*4 : offset + i*4 + 4] = struct.pack(">f", val)
-    
-    pressure_raw = int(1000 + random.uniform(-100, 100))
-    data[336:338] = struct.pack(">H", min(65535, max(0, pressure_raw)))
-    
-    return bytes(data)
-
-
-# ============================================================
-# PLC 读取函数 (使用长连接)
-# ============================================================
-async def _read_plc_db(db_number: int, size: int) -> tuple[bool, bytes, str]:
-    """
-    读取 PLC DB 块数据（使用 PLC 管理器）
+    支持两种模式:
+    1. Mock模式 (use_mock_data=True): 使用 MockDataGenerator 生成模拟数据
+    2. 真实PLC模式: 通过 snap7 从真实 PLC 读取数据
     
     Returns:
-        (success, data, error_msg)
+        Tuple[bool, bytes, str]: (成功标志, 原始字节数据, 错误信息)
     """
-    # Mock数据模式 - 直接生成模拟数据
+    global _mock_generator
+    
+    # DB2 配置: 338 字节 (6个电表×56 + 压力表2)
+    DB_NUMBER = 2
+    DB_SIZE = 338
+    
     if settings.use_mock_data:
-        await asyncio.sleep(0.01)  # 模拟读取延迟
-        if db_number == 1:
-            return (True, _generate_mock_db1(), "")
-        elif db_number == 2:
-            return (True, _generate_mock_db2(), "")
-        else:
-            return (False, b"", f"Unknown DB{db_number}")
+        # Mock模式: 使用模拟数据生成器
+        if _mock_generator is None:
+            # 动态导入 MockDataGenerator (避免硬依赖)
+            try:
+                from tests.mock.mock_data_generator import MockDataGenerator
+            except ImportError:
+                # 兼容旧路径
+                from pathlib import Path
+                import importlib.util
+                mock_path = Path(__file__).parent.parent.parent / "tests" / "mock" / "mock_data_generator.py"
+                spec = importlib.util.spec_from_file_location("mock_data_generator", mock_path)
+                mock_module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(mock_module)
+                MockDataGenerator = mock_module.MockDataGenerator
+            
+            _mock_generator = MockDataGenerator()
+            logger.info("Mock模式: 已加载模拟数据生成器")
+        
+        # 生成模拟数据
+        db_data = _mock_generator.generate_all_db_data()
+        db2_bytes = db_data.get(2, bytes(DB_SIZE))
+        
+        return (True, db2_bytes, "")
     
-    # 真实 PLC 模式
-    plc = get_plc_manager()
-    
-    if not plc._initialized:
-        return (False, b"", "PLC未初始化")
-    
-    success, data, err = plc.read_db(db_number, 0, size)
-    return (success, data, err)
+    else:
+        # 真实PLC模式: 通过 snap7 读取
+        plc = get_plc_manager()
+        
+        # 确保连接
+        if not plc.is_connected():
+            success, err = plc.connect()
+            if not success:
+                return (False, b"", f"PLC连接失败: {err}")
+        
+        # 读取 DB2
+        success, data, err = plc.read_db(DB_NUMBER, 0, DB_SIZE)
+        return (success, data, err)
 
 
 # ============================================================
@@ -256,13 +226,13 @@ def _flush_buffer():
             _stats["successful_writes"] += len(points)
             _stats["last_write_time"] = datetime.now(timezone.utc).isoformat()
             if not settings.verbose_polling_log:
-                print(f"✅ 批量写入 {len(points)} 个数据点到 InfluxDB")
+                logger.info(f"批量写入 {len(points)} 个数据点到 InfluxDB")
         else:
-            print(f"❌ InfluxDB 写入失败: {err}，转存到本地缓存")
+            logger.error(f"InfluxDB 写入失败: {err}，转存到本地缓存")
             _save_to_local_cache(points)
     else:
         # InfluxDB 不可用，保存到本地
-        print(f"⚠️ InfluxDB 不可用 ({msg})，数据写入本地缓存")
+        logger.warning(f"InfluxDB 不可用 ({msg})，数据写入本地缓存")
         _save_to_local_cache(points)
 
 
@@ -287,7 +257,7 @@ def _save_to_local_cache(points: List):
     _stats["cached_points"] += saved_count
     _stats["failed_writes"] += len(points)
     
-    print(f"💾 已保存 {saved_count} 个数据点到本地缓存")
+    logger.info(f"已保存 {saved_count} 个数据点到本地缓存")
 
 
 # ============================================================
@@ -314,7 +284,7 @@ async def _retry_cached_data():
         if not pending:
             continue
         
-        print(f"🔄 开始重试 {len(pending)} 条缓存数据...")
+        logger.info(f"开始重试 {len(pending)} 条缓存数据...")
         
         # 重新构建 Point 对象
         points = []
@@ -332,7 +302,7 @@ async def _retry_cached_data():
                     points.append(point)
                     ids.append(point_id)
             except Exception as e:
-                print(f"⚠️ 重建 Point 失败: {e}")
+                logger.warning(f"重建 Point 失败: {e}")
         
         if not points:
             continue
@@ -344,10 +314,10 @@ async def _retry_cached_data():
             cache.mark_success(ids)
             _stats["retry_success"] += len(points)
             _stats["last_retry_time"] = datetime.now(timezone.utc).isoformat()
-            print(f"✅ 重试成功: {len(points)} 条数据已写入 InfluxDB")
+            logger.info(f"重试成功: {len(points)} 条数据已写入 InfluxDB")
         else:
             cache.mark_retry(ids)
-            print(f"❌ 重试失败: {err}")
+            logger.error(f"重试失败: {err}")
 
 
 # ============================================================
@@ -355,7 +325,7 @@ async def _retry_cached_data():
 # ============================================================
 async def _poll_loop():
     """轮询主循环"""
-    global _latest_status, _latest_data, _buffer_count, _stats
+    global _latest_data, _buffer_count, _stats
     
     poll_count = 0
     
@@ -366,38 +336,12 @@ async def _poll_loop():
         
         try:
             # ========================================
-            # Step 1: 读取 DB1 状态
+            # Step 1: 读取 DB2 数据
             # ========================================
-            success_db1, db1_bytes, err_db1 = await _read_plc_db(1, 56)
-            
-            if not success_db1:
-                print(f"❌ [poll #{poll_count}] 读取 DB1 失败: {err_db1}")
-                await asyncio.sleep(settings.plc_poll_interval)
-                continue
-            
-            status_data = parse_status_db(db1_bytes)
-            _latest_status = status_data
-            
-            # 状态数据加入缓存
-            for device_id in DEVICE_STATUS_MAP.keys():
-                if device_id in status_data and device_id != "summary":
-                    fields = _status_conv.convert(status_data[device_id])
-                    point = build_point(
-                        measurement="device_status",
-                        tags={"device_id": device_id, "module_type": "CommStatus"},
-                        fields=fields,
-                        timestamp=timestamp
-                    )
-                    if point:
-                        _point_buffer.append(point)
-            
-            # ========================================
-            # Step 2: 读取 DB2 数据
-            # ========================================
-            success_db2, db2_bytes, err_db2 = await _read_plc_db(2, 338)
+            success_db2, db2_bytes, err_db2 = await _read_plc_db2()
             
             if not success_db2:
-                print(f"❌ [poll #{poll_count}] 读取 DB2 失败: {err_db2}")
+                logger.error(f"[poll #{poll_count}] 读取 DB2 失败: {err_db2}")
                 await asyncio.sleep(settings.plc_poll_interval)
                 continue
             
@@ -405,24 +349,16 @@ async def _poll_loop():
             _latest_data = sensor_data
             
             # ========================================
-            # Step 3: 根据状态过滤，加入缓存
+            # Step 2: 数据加入缓存
             # ========================================
             written_count = 0
-            skipped_count = 0
             
             # 电表数据
             for idx in range(6):
                 device_id = f"pump_meter_{idx+1}"
                 meter_key = f"meter_{idx+1}"
                 
-                device_status = status_data.get(device_id, {})
-                
-                if not is_device_comm_ok(device_status):
-                    skipped_count += 1
-                    continue
-                
                 if meter_key not in sensor_data or "error" in sensor_data[meter_key]:
-                    skipped_count += 1
                     continue
                 
                 fields = _elec_conv.convert(sensor_data[meter_key])
@@ -437,25 +373,20 @@ async def _poll_loop():
                     written_count += 1
             
             # 压力表数据
-            pressure_status = status_data.get("pump_pressure", {})
-            
-            if is_device_comm_ok(pressure_status):
-                if "pressure" in sensor_data and "error" not in sensor_data["pressure"]:
-                    fields = _pres_conv.convert(sensor_data["pressure"])
-                    point = build_point(
-                        measurement="sensor_data",
-                        tags={"device_id": "pump_pressure", "module_type": _pres_conv.MODULE_TYPE},
-                        fields=fields,
-                        timestamp=timestamp
-                    )
-                    if point:
-                        _point_buffer.append(point)
-                        written_count += 1
-            else:
-                skipped_count += 1
+            if "pressure" in sensor_data and "error" not in sensor_data["pressure"]:
+                fields = _pres_conv.convert(sensor_data["pressure"])
+                point = build_point(
+                    measurement="sensor_data",
+                    tags={"device_id": "pump_pressure", "module_type": _pres_conv.MODULE_TYPE},
+                    fields=fields,
+                    timestamp=timestamp
+                )
+                if point:
+                    _point_buffer.append(point)
+                    written_count += 1
             
             # ========================================
-            # Step 3.5: 报警检测
+            # Step 3: 报警检测
             # ========================================
             _check_and_log_alarms(sensor_data)
             
@@ -467,7 +398,7 @@ async def _poll_loop():
             # 缓冲区满告警 (达到90%容量)
             buffer_usage = len(_point_buffer) / 1000
             if buffer_usage > 0.9:
-                print(f"⚠️ 缓冲区使用率过高: {buffer_usage*100:.1f}% (可能需要降低轮询频率)")
+                logger.warning(f"缓冲区使用率过高: {buffer_usage*100:.1f}% (可能需要降低轮询频率)")
             
             # 当轮询次数达到batch_size或缓冲区点数超过200时，触发批量写入
             if _buffer_count >= _batch_size or len(_point_buffer) >= 200:
@@ -476,18 +407,15 @@ async def _poll_loop():
             # ========================================
             # 日志输出
             # ========================================
-            summary = status_data.get("summary", {})
-            
             if settings.verbose_polling_log or _buffer_count % 10 == 0:
                 cache_stats = get_local_cache().get_stats()
-                print(f"📊 [poll #{poll_count}] "
-                      f"状态: OK={summary.get('ok_count', 0)}/ERR={summary.get('error_count', 0)} | "
-                      f"数据: 缓存={written_count}, 跳过={skipped_count} | "
+                logger.debug(f"[poll #{poll_count}] "
+                      f"数据: 写入={written_count} | "
                       f"缓冲区={len(_point_buffer)}/{_batch_size} | "
                       f"待写入={cache_stats['pending_count']}")
         
         except Exception as e:
-            print(f"❌ [poll #{poll_count}] 轮询异常: {e}")
+            logger.error(f"[poll #{poll_count}] 轮询异常: {e}")
             traceback.print_exc()
         
         await asyncio.sleep(settings.plc_poll_interval)
@@ -496,37 +424,47 @@ async def _poll_loop():
 # ============================================================
 # 服务控制函数
 # ============================================================
+def _task_exception_handler(task: asyncio.Task):
+    """处理 Task 未捕获异常"""
+    try:
+        exc = task.exception()
+        if exc:
+            logger.critical(f"Task {task.get_name()} 崩溃: {exc}", exc_info=exc)
+    except asyncio.CancelledError:
+        pass  # 正常取消
+
+
 async def start_polling():
     """启动轮询服务"""
     global _poll_task, _retry_task, _is_running
     
-    # Mock模式下检查是否启用Mock轮询
-    if settings.use_mock_data:
-        if not settings.enable_mock_polling:
-            print("📝 Mock模式：跳过轮询服务启动 (enable_mock_polling=False)")
-            return
-        else:
-            print("📝 Mock模式：启用模拟轮询 (enable_mock_polling=True)")
-    
     if _is_running:
-        print("⚠️ 轮询服务已在运行")
+        logger.warning("轮询服务已在运行")
         return
     
     _is_running = True
     
-    # 启动 PLC 连接
-    plc = get_plc_manager()
-    success, err = plc.connect()
-    if success:
-        print(f"✅ PLC 连接成功")
+    # 打印启动模式
+    if settings.use_mock_data:
+        logger.info("Mock模式：数据流 MockGenerator → 解析 → 转换 → InfluxDB")
     else:
-        print(f"⚠️ PLC 连接失败: {err}，将使用模拟数据")
+        # 真实PLC模式：连接PLC
+        plc = get_plc_manager()
+        success, err = plc.connect()
+        if success:
+            logger.info("PLC 连接成功")
+        else:
+            logger.warning(f"PLC 连接失败: {err}，将在轮询时重试")
     
-    # 启动轮询任务
-    _poll_task = asyncio.create_task(_poll_loop())
-    _retry_task = asyncio.create_task(_retry_cached_data())
+    # 启动轮询任务 (添加异常处理)
+    _poll_task = asyncio.create_task(_poll_loop(), name="poll_loop")
+    _poll_task.add_done_callback(_task_exception_handler)
     
-    print(f"✅ 轮询服务已启动 (间隔: {settings.plc_poll_interval}s, 批量: {_batch_size}次)")
+    _retry_task = asyncio.create_task(_retry_cached_data(), name="retry_cached")
+    _retry_task.add_done_callback(_task_exception_handler)
+    
+    mode_str = "Mock" if settings.use_mock_data else "PLC"
+    logger.info(f"轮询服务已启动 ({mode_str}模式, 间隔: {settings.plc_poll_interval}s)")
 
 
 async def stop_polling():
@@ -536,7 +474,7 @@ async def stop_polling():
     _is_running = False
     
     # 刷新缓冲区
-    print("⏳ 正在刷新缓冲区...")
+    logger.info("正在刷新缓冲区...")
     _flush_buffer()
     
     # 取消任务
@@ -555,17 +493,12 @@ async def stop_polling():
     plc = get_plc_manager()
     plc.disconnect()
     
-    print("⏹️ 轮询服务已停止")
+    logger.info("轮询服务已停止")
 
 
 # ============================================================
 # 状态查询函数 (供 API 使用)
 # ============================================================
-def get_latest_status() -> Dict[str, Any]:
-    """获取最新的设备状态"""
-    return _latest_status.copy()
-
-
 def get_latest_data() -> Dict[str, Any]:
     """获取最新的传感器数据"""
     return _latest_data.copy()

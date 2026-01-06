@@ -2,12 +2,16 @@
 系统资源监控模块
 监控 CPU/内存/磁盘，防止资源耗尽导致轮询失败
 """
+import logging
+
+logger = logging.getLogger(__name__)
+
 try:
     import psutil
     PSUTIL_AVAILABLE = True
 except ImportError:
     PSUTIL_AVAILABLE = False
-    print("⚠️ psutil 未安装，资源监控功能不可用（Mock模式下可忽略）")
+    logger.warning("psutil 未安装，资源监控功能不可用（Mock模式下可忽略）")
 
 import asyncio
 from datetime import datetime
@@ -105,15 +109,17 @@ async def _monitor_loop():
             # 打印告警
             alerts = stats.get("alerts", [])
             for alert in alerts:
-                level_symbol = "🔴" if alert["level"] == "critical" else "⚠️"
-                print(f"{level_symbol} {alert['message']}")
+                if alert["level"] == "critical":
+                    logger.critical(alert['message'])
+                else:
+                    logger.warning(alert['message'])
             
             # 如果 CPU/内存持续过高，建议降低轮询频率
             if stats.get("system", {}).get("cpu_percent", 0) > 95:
-                print("💡 建议: CPU 过高，考虑调大 plc_poll_interval 或降低 AI 模型推理频率")
+                logger.warning("建议: CPU 过高，考虑调大 plc_poll_interval 或降低 AI 模型推理频率")
             
         except Exception as e:
-            print(f"❌ 资源监控异常: {e}")
+            logger.error(f"资源监控异常: {e}")
         
         await asyncio.sleep(30)
 
@@ -127,7 +133,7 @@ async def start_monitoring():
     
     _is_monitoring = True
     _monitor_task = asyncio.create_task(_monitor_loop())
-    print("✅ 资源监控已启动 (间隔: 30s)")
+    logger.info("资源监控已启动 (间隔: 30s)")
 
 
 async def stop_monitoring():

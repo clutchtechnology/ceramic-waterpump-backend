@@ -8,7 +8,8 @@
 import sqlite3
 import json
 import threading
-from datetime import datetime, timezone
+import atexit
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 from dataclasses import dataclass, asdict
@@ -17,13 +18,15 @@ from config import get_settings
 
 settings = get_settings()
 
-# 缓存文件路径
-CACHE_DB_PATH = Path(settings.local_cache_path if hasattr(settings, 'local_cache_path') else "data/cache.db")
+# 1, 缓存文件路径
+CACHE_DB_PATH = Path(
+    settings.local_cache_path if hasattr(settings, 'local_cache_path') else "data/cache.db"
+)
 
 
 @dataclass
 class CachedPoint:
-    """缓存的数据点"""
+    """2, 缓存的数据点结构"""
     measurement: str
     tags: Dict[str, str]
     fields: Dict[str, Any]
@@ -41,60 +44,76 @@ class CachedPoint:
 
 
 class LocalCache:
-    """本地 SQLite 缓存管理器"""
-    
+    """
+    3, 本地 SQLite 缓存管理器 (线程安全单例)
+    """
     _instance: Optional['LocalCache'] = None
-    _lock = threading.Lock()
+    _init_lock = threading.Lock()
     
-    def __new__(cls):
+    def __new__(cls) -> 'LocalCache':
         if cls._instance is None:
-            with cls._lock:
+            with cls._init_lock:
                 if cls._instance is None:
-                    cls._instance = super().__new__(cls)
-                    cls._instance._initialized = False
+                    instance = super().__new__(cls)
+                    instance._conn = None
+                    instance._db_lock = threading.Lock()
+                    instance._initialized = False
+                    cls._instance = instance
         return cls._instance
     
-    def __init__(self):
+    def __init__(self) -> None:
+        # 3.1, 防止重复初始化 (线程安全)
         if self._initialized:
             return
         
-        self._initialized = True
-        self._conn: Optional[sqlite3.Connection] = None
-        self._db_lock = threading.Lock()
-        self._init_db()
+        with self._init_lock:
+            if self._initialized:
+                return
+            self._init_db()
+            self._initialized = True
+            # 3.2, 注册退出时关闭连接
+            atexit.register(self.close)
     
-    def _init_db(self):
-        """初始化 SQLite 数据库"""
+    def _init_db(self) -> None:
+        """3.3, 初始化 SQLite 数据库"""
         CACHE_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
         
-        self._conn = sqlite3.connect(str(CACHE_DB_PATH), check_same_thread=False)
-        self._conn.execute("""
-            CREATE TABLE IF NOT EXISTS pending_points (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                measurement TEXT NOT NULL,
-                data_json TEXT NOT NULL,
-                retry_count INTEGER DEFAULT 0,
-                created_at TEXT NOT NULL,
-                last_retry_at TEXT
+        try:
+            self._conn = sqlite3.connect(
+                str(CACHE_DB_PATH),
+                check_same_thread=False,
+                timeout=10.0  # 避免长时间锁等待
             )
-        """)
-        self._conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_measurement ON pending_points(measurement)
-        """)
-        self._conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_created_at ON pending_points(created_at)
-        """)
-        self._conn.commit()
-        
-        # 统计待处理数据
-        cursor = self._conn.execute("SELECT COUNT(*) FROM pending_points")
-        count = cursor.fetchone()[0]
-        if count > 0:
-            print(f"⚠️ 本地缓存有 {count} 条待写入数据")
+            self._conn.execute("""
+                CREATE TABLE IF NOT EXISTS pending_points (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    measurement TEXT NOT NULL,
+                    data_json TEXT NOT NULL,
+                    retry_count INTEGER DEFAULT 0,
+                    created_at TEXT NOT NULL,
+                    last_retry_at TEXT
+                )
+            """)
+            self._conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_measurement ON pending_points(measurement)"
+            )
+            self._conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_created_at ON pending_points(created_at)"
+            )
+            self._conn.commit()
+            
+            # 统计待处理数据
+            cursor = self._conn.execute("SELECT COUNT(*) FROM pending_points")
+            count = cursor.fetchone()[0]
+            if count > 0:
+                print(f"⚠️ 本地缓存有 {count} 条待写入数据")
+        except sqlite3.Error as e:
+            print(f"❌ SQLite 初始化失败: {e}")
+            self._conn = None
     
     def save_points(self, points: List[CachedPoint]) -> int:
         """
-        保存数据点到本地缓存
+        4, 保存数据点到本地缓存
         
         Args:
             points: 数据点列表
@@ -102,7 +121,7 @@ class LocalCache:
         Returns:
             成功保存的数量
         """
-        if not points:
+        if not points or self._conn is None:
             return 0
         
         with self._db_lock:
@@ -113,18 +132,23 @@ class LocalCache:
                     for p in points
                 ]
                 self._conn.executemany(
-                    "INSERT INTO pending_points (measurement, data_json, retry_count, created_at) VALUES (?, ?, ?, ?)",
+                    "INSERT INTO pending_points (measurement, data_json, retry_count, created_at) "
+                    "VALUES (?, ?, ?, ?)",
                     data
                 )
                 self._conn.commit()
                 return len(points)
-            except Exception as e:
+            except sqlite3.Error as e:
                 print(f"❌ 本地缓存保存失败: {e}")
                 return 0
     
-    def get_pending_points(self, limit: int = 100, max_retry: int = 5) -> List[tuple]:
+    def get_pending_points(
+        self,
+        limit: int = 100,
+        max_retry: int = 5
+    ) -> List[tuple]:
         """
-        获取待重试的数据点
+        5, 获取待重试的数据点
         
         Args:
             limit: 最大获取数量
@@ -133,6 +157,9 @@ class LocalCache:
         Returns:
             [(id, CachedPoint), ...]
         """
+        if self._conn is None:
+            return []
+        
         with self._db_lock:
             try:
                 cursor = self._conn.execute(
@@ -149,16 +176,17 @@ class LocalCache:
                     try:
                         point = CachedPoint.from_json(row[1])
                         results.append((row[0], point))
-                    except Exception:
+                    except (json.JSONDecodeError, TypeError):
+                        # 5.1, 跳过损坏的记录
                         pass
                 return results
-            except Exception as e:
+            except sqlite3.Error as e:
                 print(f"❌ 读取本地缓存失败: {e}")
                 return []
     
-    def mark_success(self, ids: List[int]):
-        """标记数据点写入成功（删除）"""
-        if not ids:
+    def mark_success(self, ids: List[int]) -> None:
+        """6, 标记数据点写入成功（删除）"""
+        if not ids or self._conn is None:
             return
         
         with self._db_lock:
@@ -169,12 +197,12 @@ class LocalCache:
                     ids
                 )
                 self._conn.commit()
-            except Exception as e:
+            except sqlite3.Error as e:
                 print(f"❌ 删除缓存记录失败: {e}")
     
-    def mark_retry(self, ids: List[int]):
-        """标记数据点需要重试（增加重试计数）"""
-        if not ids:
+    def mark_retry(self, ids: List[int]) -> None:
+        """7, 标记数据点需要重试（增加重试计数）"""
+        if not ids or self._conn is None:
             return
         
         with self._db_lock:
@@ -190,11 +218,14 @@ class LocalCache:
                     [now] + ids
                 )
                 self._conn.commit()
-            except Exception as e:
+            except sqlite3.Error as e:
                 print(f"❌ 更新重试计数失败: {e}")
     
     def get_stats(self) -> Dict[str, Any]:
-        """获取缓存统计信息"""
+        """8, 获取缓存统计信息"""
+        if self._conn is None:
+            return {"pending_count": 0, "failed_count": 0, "oldest_record": None}
+        
         with self._db_lock:
             try:
                 cursor = self._conn.execute("""
@@ -210,14 +241,16 @@ class LocalCache:
                     "failed_count": row[1] or 0,
                     "oldest_record": row[2]
                 }
-            except Exception:
+            except sqlite3.Error:
                 return {"pending_count": 0, "failed_count": 0, "oldest_record": None}
     
-    def cleanup_old(self, days: int = 7):
-        """清理超过指定天数的失败记录"""
+    def cleanup_old(self, days: int = 7) -> None:
+        """9, 清理超过指定天数的失败记录"""
+        if self._conn is None:
+            return
+        
         with self._db_lock:
             try:
-                from datetime import timedelta
                 cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
                 cursor = self._conn.execute(
                     "DELETE FROM pending_points WHERE created_at < ? AND retry_count >= 5",
@@ -227,16 +260,21 @@ class LocalCache:
                 self._conn.commit()
                 if deleted > 0:
                     print(f"🧹 清理了 {deleted} 条过期缓存记录")
-            except Exception as e:
+            except sqlite3.Error as e:
                 print(f"❌ 清理缓存失败: {e}")
     
-    def close(self):
-        """关闭数据库连接"""
-        if self._conn:
-            self._conn.close()
+    def close(self) -> None:
+        """10, 关闭数据库连接"""
+        if self._conn is not None:
+            try:
+                self._conn.close()
+                print("✅ SQLite 缓存连接已关闭")
+            except sqlite3.Error:
+                pass
             self._conn = None
 
 
-# 全局单例
+# 11, 全局单例获取函数
 def get_local_cache() -> LocalCache:
+    """获取本地缓存单例"""
     return LocalCache()

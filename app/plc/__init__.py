@@ -1,1 +1,1 @@
-from . import parser_waterpump, parser_status
+from . import parser_waterpump, parser_status_waterpump

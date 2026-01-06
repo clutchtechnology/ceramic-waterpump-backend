@@ -8,6 +8,8 @@
 #   4. 线程安全读写
 # ============================================================
 
+import atexit
+import logging
 import threading
 import time
 from typing import Optional, Tuple
@@ -15,6 +17,7 @@ from datetime import datetime, timezone
 
 from config import get_settings
 
+logger = logging.getLogger(__name__)
 settings = get_settings()
 
 # 尝试导入 snap7
@@ -24,28 +27,16 @@ try:
     SNAP7_AVAILABLE = True
 except ImportError:
     SNAP7_AVAILABLE = False
-    print("⚠️ snap7 未安装，使用模拟模式")
+    logger.warning("snap7 未安装，使用模拟模式")
 
 
 class PLCManager:
-    """PLC 长连接管理器（单例模式）"""
+    """PLC 长连接管理器
     
-    _instance: Optional['PLCManager'] = None
-    _lock = threading.Lock()
-    
-    def __new__(cls):
-        if cls._instance is None:
-            with cls._lock:
-                if cls._instance is None:
-                    cls._instance = super().__new__(cls)
-                    cls._instance._initialized = False
-        return cls._instance
+    注意: 请使用 get_plc_manager() 获取单例，不要直接实例化
+    """
     
     def __init__(self):
-        if self._initialized:
-            return
-        
-        self._initialized = True
         
         # 连接配置
         self._ip: str = settings.plc_ip
@@ -70,7 +61,7 @@ class PLCManager:
         self._max_reconnect_attempts: int = 3  # 最大重连次数
         self._health_check_interval: float = 30.0  # 健康检查间隔
         
-        print(f"📡 PLC Manager 初始化: {self._ip}:{self._rack}/{self._slot}")
+        logger.info(f"PLC Manager 初始化: {self._ip}:{self._rack}/{self._slot}")
     
     def update_config(self, ip: str = None, rack: int = None, slot: int = None, timeout_ms: int = None):
         """更新 PLC 连接配置（需要重连生效）"""
@@ -86,7 +77,7 @@ class PLCManager:
             
             # 断开旧连接
             self._disconnect_internal()
-            print(f"📡 PLC 配置已更新: {self._ip}:{self._rack}/{self._slot}")
+            logger.info(f"PLC 配置已更新: {self._ip}:{self._rack}/{self._slot}")
     
     def connect(self) -> Tuple[bool, str]:
         """
@@ -135,14 +126,14 @@ class PLCManager:
             self._last_connect_time = datetime.now(timezone.utc)
             self._connect_count += 1
             self._error_count = 0
-            print(f"✅ PLC 已连接 ({self._ip}) [第 {self._connect_count} 次]")
+            logger.info(f"PLC 已连接 ({self._ip}) [第 {self._connect_count} 次]")
             return (True, "")
         
         except Exception as e:
             self._connected = False
             self._error_count += 1
             self._last_error = str(e)
-            print(f"❌ PLC 连接失败: {e}")
+            logger.error(f"PLC 连接失败: {e}")
             return (False, self._last_error)
     
     def disconnect(self):
@@ -159,7 +150,7 @@ class PLCManager:
             except Exception:
                 pass
         self._connected = False
-        print("🔌 PLC 已断开")
+        logger.info("PLC 已断开")
     
     def read_db(self, db_number: int, start: int, size: int) -> Tuple[bool, bytes, str]:
         """
@@ -199,14 +190,14 @@ class PLCManager:
                     
                     # 尝试重连
                     if attempt < self._max_reconnect_attempts - 1:
-                        print(f"⚠️ DB{db_number} 读取失败 (尝试 {attempt+1}/{self._max_reconnect_attempts}): {e}")
+                        logger.warning(f"DB{db_number} 读取失败 (尝试 {attempt+1}/{self._max_reconnect_attempts}): {e}")
                         self._disconnect_internal()
                         time.sleep(0.5)
                         success, _ = self._connect_internal()
                         if not success:
                             continue
                     else:
-                        print(f"❌ DB{db_number} 读取失败 (已重试 {self._max_reconnect_attempts} 次): {e}")
+                        logger.error(f"DB{db_number} 读取失败 (已重试 {self._max_reconnect_attempts} 次): {e}")
             
             return (False, b"", self._last_error)
     
@@ -252,12 +243,31 @@ class PLCManager:
         return (False, err)
 
 
-# 全局单例
+# ============================================================
+# 模块级单例 (线程安全)
+# ============================================================
 _plc_manager: Optional[PLCManager] = None
+_plc_manager_lock = threading.Lock()
+
 
 def get_plc_manager() -> PLCManager:
-    """获取 PLC 管理器单例"""
+    """获取 PLC 管理器单例 (线程安全)"""
     global _plc_manager
     if _plc_manager is None:
-        _plc_manager = PLCManager()
+        with _plc_manager_lock:
+            if _plc_manager is None:
+                _plc_manager = PLCManager()
     return _plc_manager
+
+
+def close_plc_manager() -> None:
+    """关闭 PLC 连接 (进程退出时调用)"""
+    global _plc_manager
+    if _plc_manager is not None:
+        _plc_manager.disconnect()
+        _plc_manager = None
+        logger.info("PLC Manager 已清理")
+
+
+# 注册退出清理
+atexit.register(close_plc_manager)

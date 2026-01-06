@@ -1,21 +1,78 @@
+"""
+InfluxDB 核心模块 - 数据写入与查询
+奥卡姆剃刀: 单例 Client + 复用 WriteAPI
+"""
 from influxdb_client import InfluxDBClient, Point
-from influxdb_client.client.write_api import SYNCHRONOUS, WriteOptions
+from influxdb_client.client.write_api import SYNCHRONOUS
 from typing import Dict, Any, Optional, List, Tuple
 from datetime import datetime, timezone
-from functools import lru_cache
 import threading
+import atexit
 
 from config import get_settings
 
 settings = get_settings()
 
-# 写入锁
+# 1, 模块级单例: Client + WriteAPI + 写入锁
+_client: Optional[InfluxDBClient] = None
+_write_api = None
 _write_lock = threading.Lock()
+_client_lock = threading.Lock()
 
 
-@lru_cache()
+def _get_or_create_client() -> Tuple[InfluxDBClient, Any]:
+    """
+    1, 获取或创建 InfluxDB Client 和 WriteAPI (线程安全单例)
+    """
+    global _client, _write_api
+    
+    if _client is not None and _write_api is not None:
+        return _client, _write_api
+    
+    with _client_lock:
+        if _client is None:
+            _client = InfluxDBClient(
+                url=settings.influx_url,
+                token=settings.influx_token,
+                org=settings.influx_org
+            )
+            _write_api = _client.write_api(write_options=SYNCHRONOUS)
+            print(f"✅ InfluxDB Client 已创建: {settings.influx_url}")
+    
+    return _client, _write_api
+
+
 def get_influx_client() -> InfluxDBClient:
-    return InfluxDBClient(url=settings.influx_url, token=settings.influx_token, org=settings.influx_org)
+    """获取 InfluxDB Client (兼容旧接口)"""
+    client, _ = _get_or_create_client()
+    return client
+
+
+def close_influx_client() -> None:
+    """
+    关闭 InfluxDB Client (应用退出时调用)
+    """
+    global _client, _write_api
+    
+    with _client_lock:
+        if _write_api is not None:
+            try:
+                _write_api.close()
+            except Exception:
+                pass
+            _write_api = None
+        
+        if _client is not None:
+            try:
+                _client.close()
+                print("✅ InfluxDB Client 已关闭")
+            except Exception:
+                pass
+            _client = None
+
+
+# 2, 应用退出时自动关闭连接
+atexit.register(close_influx_client)
 
 
 def check_influx_health() -> Tuple[bool, str]:
@@ -35,12 +92,17 @@ def check_influx_health() -> Tuple[bool, str]:
         return (False, str(e))
 
 
-def write_point(measurement: str, tags: Dict[str, str], fields: Dict[str, Any], timestamp: Optional[datetime] = None) -> bool:
+def write_point(
+    measurement: str,
+    tags: Dict[str, str],
+    fields: Dict[str, Any],
+    timestamp: Optional[datetime] = None
+) -> bool:
     """
-    写入单个数据点到 InfluxDB
+    3, 写入单个数据点到 InfluxDB (复用 WriteAPI)
     
     Args:
-        measurement: 测量名称 (sensor_data / device_status)
+        measurement: 测量名称 (sensor_data / device_status / alarm_logs)
         tags: 标签字典 (device_id, module_type 等)
         fields: 字段字典 (数值数据)
         timestamp: 时间戳 (可选，默认当前时间)
@@ -48,15 +110,18 @@ def write_point(measurement: str, tags: Dict[str, str], fields: Dict[str, Any], 
     Returns:
         写入是否成功
     """
+    point = build_point(measurement, tags, fields, timestamp)
+    if point is None:
+        return False
+    
     try:
-        client = get_influx_client()
-        write_api = client.write_api(write_options=SYNCHRONOUS)
-        point = _build_point(measurement, tags, fields, timestamp)
-        if point is None:
-            return False
-        
+        _, write_api = _get_or_create_client()
         with _write_lock:
-            write_api.write(bucket=settings.influx_bucket, org=settings.influx_org, record=point)
+            write_api.write(
+                bucket=settings.influx_bucket,
+                org=settings.influx_org,
+                record=point
+            )
         return True
     except Exception as e:
         print(f"❌ InfluxDB 写入失败: {e}")
@@ -65,7 +130,7 @@ def write_point(measurement: str, tags: Dict[str, str], fields: Dict[str, Any], 
 
 def write_points_batch(points: List[Point]) -> Tuple[bool, str]:
     """
-    批量写入数据点到 InfluxDB
+    3, 批量写入数据点到 InfluxDB (复用 WriteAPI)
     
     Args:
         points: Point 对象列表
@@ -77,58 +142,62 @@ def write_points_batch(points: List[Point]) -> Tuple[bool, str]:
         return (True, "")
     
     try:
-        client = get_influx_client()
-        write_api = client.write_api(write_options=SYNCHRONOUS)
-        
+        _, write_api = _get_or_create_client()
         with _write_lock:
-            write_api.write(bucket=settings.influx_bucket, org=settings.influx_org, record=points)
-        
+            write_api.write(
+                bucket=settings.influx_bucket,
+                org=settings.influx_org,
+                record=points
+            )
         return (True, "")
     except Exception as e:
         return (False, str(e))
 
 
-def build_point(measurement: str, tags: Dict[str, str], fields: Dict[str, Any], timestamp: Optional[datetime] = None) -> Optional[Point]:
+def build_point(
+    measurement: str,
+    tags: Dict[str, str],
+    fields: Dict[str, Any],
+    timestamp: Optional[datetime] = None
+) -> Optional[Point]:
     """
-    构建 InfluxDB Point 对象（供外部批量使用）
+    4, 构建 InfluxDB Point 对象
+    
+    Args:
+        measurement: 测量名称
+        tags: 标签字典
+        fields: 字段字典
+        timestamp: 时间戳 (可选)
     
     Returns:
-        Point 对象或 None (如果字段为空)
-    """
-    return _build_point(measurement, tags, fields, timestamp)
-
-
-def _build_point(measurement: str, tags: Dict[str, str], fields: Dict[str, Any], timestamp: Optional[datetime] = None) -> Optional[Point]:
-    """
-    内部方法：构建 Point 对象
+        Point 对象或 None (如果无有效字段)
     """
     point = Point(measurement)
     
+    # 4.1, 添加标签
     for k, v in tags.items():
         point = point.tag(k, v)
     
-    # alarm_logs 允许字符串字段
+    # 4.2, 添加字段 (alarm_logs 允许字符串字段)
     allow_string = measurement == "alarm_logs"
-    
     valid_fields = 0
+    
     for k, v in fields.items():
-        # 跳过 None 值
         if v is None:
             continue
-        # InfluxDB 字符串字段处理
-        if isinstance(v, str):
-            # alarm_logs 和特定字段允许字符串
-            if not (allow_string or k == "comm_state"):
-                continue
+        # 4.3, 字符串字段仅限 alarm_logs 或 comm_state
+        if isinstance(v, str) and not (allow_string or k == "comm_state"):
+            continue
         point = point.field(k, v)
         valid_fields += 1
     
     if valid_fields == 0:
         return None
     
+    # 4.4, 设置时间戳
     if timestamp:
         if timestamp.tzinfo is None:
-            timestamp = timestamp.astimezone(timezone.utc)
+            timestamp = timestamp.replace(tzinfo=timezone.utc)
         point = point.time(timestamp)
     
     return point
@@ -136,15 +205,15 @@ def _build_point(measurement: str, tags: Dict[str, str], fields: Dict[str, Any],
 
 
 def query_data(
-    measurement: str, 
-    start_iso: str, 
-    stop_iso: str, 
-    tags: Optional[Dict[str, str]] = None, 
+    measurement: str,
+    start_iso: str,
+    stop_iso: str,
+    tags: Optional[Dict[str, str]] = None,
     interval: str = "1m",
     device_id: Optional[str] = None
 ) -> List[Dict[str, Any]]:
     """
-    查询 InfluxDB 历史数据
+    5, 查询 InfluxDB 历史数据
     
     Args:
         measurement: 测量名称
@@ -160,20 +229,22 @@ def query_data(
     client = get_influx_client()
     query_api = client.query_api()
     
-    # 构建过滤条件
+    # 5.1, 构建过滤条件 (防注入: 仅允许字母数字下划线)
     filters = []
     
-    if device_id:
+    if device_id and device_id.replace("_", "").isalnum():
         filters.append(f'r["device_id"] == "{device_id}"')
     
     if tags:
         for k, v in tags.items():
-            filters.append(f'r["{k}"] == "{v}"')
+            if k.isalnum() and str(v).replace("_", "").isalnum():
+                filters.append(f'r["{k}"] == "{v}"')
     
     tag_filter = ""
     if filters:
         tag_filter = " |> filter(fn: (r) => " + " and ".join(filters) + ")"
 
+    # 5.2, 构建 Flux 查询
     query = f'''
     from(bucket: "{settings.influx_bucket}")
       |> range(start: {start_iso}, stop: {stop_iso})

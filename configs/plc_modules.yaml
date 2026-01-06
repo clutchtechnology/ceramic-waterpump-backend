@@ -87,3 +87,24 @@ plc_modules:
         unit: "0.01kPa"
         data_type: "Word"
         offset: 0
+
+  # ============================================================
+  # 通信状态模块 (用于 DB3 DataState)
+  # ============================================================
+  - module_type: "CommStatus"
+    size: 4
+    description: "Modbus 通信状态模块 (Error + Status)"
+    fields:
+      - name: "error"
+        display_name: "通信错误"
+        unit: ""
+        data_type: "Bool"
+        byte_offset: 0
+        bit_offset: 0
+        description: "true = 通信错误"
+      - name: "status"
+        display_name: "状态码"
+        unit: ""
+        data_type: "Word"
+        offset: 2
+        description: "16#0 = 正常"

@@ -1,10 +1,12 @@
+import logging
+import random
+
 from fastapi import APIRouter, Query, HTTPException
 from datetime import datetime, timedelta
 from typing import Optional, Dict, List, Any
 
 from app.core.influxdb import query_data, get_influx_client
 from app.services.polling_service import (
-    get_latest_status, 
     get_latest_data, 
     is_polling_running,
     get_polling_stats
@@ -12,10 +14,12 @@ from app.services.polling_service import (
 from app.services.resource_monitor import get_monitor_stats
 from app.services.mock_service import MockService
 from app.plc.plc_manager import get_plc_manager
+from app.plc.parser_status_waterpump import parse_status_waterpump_db
 from app.core.threshold_store import load_thresholds, save_thresholds, check_alarm, check_pressure_alarm, get_pump_threshold, get_pressure_threshold
 from app.core.alarm_store import query_alarms, get_alarm_count, log_alarm
 from config import get_settings
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 settings = get_settings()
 
@@ -45,7 +49,7 @@ def _parse_interval(interval: str) -> int:
         # 默认按秒处理
         try:
             return int(interval)
-        except:
+        except ValueError:
             return 60
 
 
@@ -157,7 +161,7 @@ async def health():
         influx_status = "ok" if health_result.status == "pass" else "error"
     except Exception as e:
         influx_status = "error"
-        print(f"InfluxDB health check failed: {e}")
+        logger.warning(f"InfluxDB health check failed: {e}")
 
     polling_running = is_polling_running()
     
@@ -295,7 +299,7 @@ async def get_realtime_batch():
         }
         
     except Exception as e:
-        print(f"Error in get_realtime_batch: {e}")
+        logger.error(f"Error in get_realtime_batch: {e}", exc_info=True)
         return {
             "success": False,
             "error": str(e),
@@ -368,7 +372,7 @@ async def get_realtime_pressure():
         }
         
     except Exception as e:
-        print(f"Error in get_realtime_pressure: {e}")
+        logger.error(f"Error in get_realtime_pressure: {e}", exc_info=True)
         return {
             "success": False,
             "error": str(e),
@@ -459,7 +463,7 @@ async def get_realtime_pump(pump_id: int):
         }
         
     except Exception as e:
-        print(f"Error in get_realtime_pump: {e}")
+        logger.error(f"Error in get_realtime_pump: {e}", exc_info=True)
         return {
             "success": False,
             "error": str(e),
@@ -591,7 +595,7 @@ async def get_history_data(
         }
         
     except Exception as e:
-        print(f"Error in get_history_data: {e}")
+        logger.error(f"Error in get_history_data: {e}", exc_info=True)
         return {
             "success": False,
             "error": str(e),
@@ -742,7 +746,7 @@ async def get_statistics(
         }
         
     except Exception as e:
-        print(f"Error in get_statistics: {e}")
+        logger.error(f"Error in get_statistics: {e}", exc_info=True)
         return {
             "success": False,
             "error": str(e),
@@ -792,7 +796,7 @@ async def get_system_status():
         }
         
     except Exception as e:
-        print(f"Error in get_system_status: {e}")
+        logger.error(f"Error in get_system_status: {e}", exc_info=True)
         return {
             "success": False,
             "error": str(e),
@@ -939,3 +943,129 @@ async def get_alarms_count(hours: int = Query(24, description="统计时间范�
             "data": {"warning": 0, "alarm": 0, "total": 0},
             "timestamp": datetime.utcnow().isoformat() + "Z"
         }
+
+
+# ============================================================
+# 8. 设备状态位 (DB3 通信状态)
+# ============================================================
+@router.get("/status/devices")
+async def get_device_status():
+    """
+    获取所有设备的通信状态 (DB3 DataState)
+    
+    返回格式：
+    {
+        "success": true,
+        "data": {
+            "db3": [
+                {
+                    "device_id": "status_meter_1",
+                    "device_name": "1号泵电表",
+                    "error": false,
+                    "status_code": 0,
+                    "status_hex": "0000",
+                    "is_normal": true
+                },
+                ...
+            ]
+        },
+        "summary": {
+            "total": 7,
+            "normal": 7,
+            "error": 0
+        }
+    }
+    """
+    try:
+        # Mock模式：生成模拟状态数据
+        if settings.use_mock_data:
+            mock_data = _generate_mock_status()
+            return {
+                "success": True,
+                "data": {"db3": mock_data["devices"]},
+                "summary": mock_data["summary"],
+                "source": "mock",
+                "timestamp": datetime.utcnow().isoformat() + "Z"
+            }
+        
+        # 真实PLC模式：读取DB3
+        plc = get_plc_manager()
+        success, db3_bytes, err = plc.read_db(3, 0, 52)
+        
+        if not success:
+            return {
+                "success": False,
+                "error": f"读取DB3失败: {err}",
+                "timestamp": datetime.utcnow().isoformat() + "Z"
+            }
+        
+        # 解析状态数据
+        status_data = parse_status_waterpump_db(db3_bytes, only_enabled=True)
+        
+        return {
+            "success": True,
+            "data": {"db3": status_data["devices"]},
+            "summary": status_data["summary"],
+            "source": "plc",
+            "timestamp": datetime.utcnow().isoformat() + "Z"
+        }
+        
+    except Exception as e:
+        logger.error(f"Error in get_device_status: {e}", exc_info=True)
+        return {
+            "success": False,
+            "error": str(e),
+            "timestamp": datetime.utcnow().isoformat() + "Z"
+        }
+
+
+def _generate_mock_status() -> Dict[str, Any]:
+    """生成模拟的设备状态数据"""
+    devices = []
+    normal_count = 0
+    error_count = 0
+    
+    # 6个水泵电表 + 1个压力表
+    device_configs = [
+        ("status_meter_1", "1号泵电表", "pump_meter_1", 0),
+        ("status_meter_2", "2号泵电表", "pump_meter_2", 4),
+        ("status_meter_3", "3号泵电表", "pump_meter_3", 8),
+        ("status_meter_4", "4号泵电表", "pump_meter_4", 12),
+        ("status_meter_5", "5号泵电表", "pump_meter_5", 16),
+        ("status_meter_6", "6号泵电表", "pump_meter_6", 20),
+        ("status_pressure", "压力表", "pump_pressure", 48),
+    ]
+    
+    for device_id, name, data_id, offset in device_configs:
+        # 95% 概率正常
+        is_normal = random.random() < 0.95
+        
+        if is_normal:
+            error = False
+            status_code = 0
+            normal_count += 1
+        else:
+            error = random.random() < 0.5
+            status_code = random.choice([0x8001, 0x8002, 0x8003]) if error else 0
+            error_count += 1
+        
+        devices.append({
+            "device_id": device_id,
+            "device_name": name,
+            "data_device_id": data_id,
+            "offset": offset,
+            "enabled": True,
+            "error": error,
+            "status_code": status_code,
+            "status_hex": f"{status_code:04X}",
+            "is_normal": is_normal
+        })
+    
+    return {
+        "devices": devices,
+        "summary": {
+            "total": len(devices),
+            "normal": normal_count,
+            "error": error_count
+        }
+    }

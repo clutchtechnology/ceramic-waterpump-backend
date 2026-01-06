@@ -1,5 +1,6 @@
 from functools import lru_cache
 from pydantic_settings import BaseSettings
+from pydantic import Field
 
 
 class Settings(BaseSettings):
@@ -8,15 +9,15 @@ class Settings(BaseSettings):
     server_port: int = 8081
     debug: bool = False
 
-    # 轮询
+    # 轮询开关
     enable_polling: bool = False
-    enable_mock_polling: bool = False  # Mock模式下是否启用轮询（模拟PLC→解析→存储流程）
     verbose_polling_log: bool = False
     plc_poll_interval: int = 5
 
-    # PLC
-    use_real_plc: bool = False
-    use_mock_data: bool = True
+    # Mock模式 (USE_MOCK_DATA=true 时使用模拟数据生成器代替真实PLC)
+    use_mock_data: bool = Field(default=True, alias="USE_MOCK_DATA")
+
+    # PLC 配置
     plc_ip: str = ""
     plc_rack: int = 0
     plc_slot: int = 1
@@ -35,6 +36,7 @@ class Settings(BaseSettings):
         env_file = ".env"
         env_file_encoding = "utf-8"
         extra = "ignore"
+        populate_by_name = True  # 允许通过别名或字段名填充
 
 
 @lru_cache()

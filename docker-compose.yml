@@ -5,7 +5,7 @@ services:
     container_name: waterpump-influxdb
     restart: unless-stopped
     ports:
-      - '8087:8086'  # 外部端口8087，避免与其他项目冲突
+      - '8087:8086' # 外部端口8087，避免与其他项目冲突
     volumes:
       - D:/docker-data/waterpump/influxdb-data:/var/lib/influxdb2
       - D:/docker-data/waterpump/influxdb-config:/etc/influxdb2
@@ -45,7 +45,6 @@ services:
       - SERVER_PORT=8081
       - USE_MOCK_DATA=true
       - ENABLE_POLLING=true
-      - ENABLE_MOCK_POLLING=true  # Mock模式下启用轮询（模拟PLC→解析→存储流程）
     networks:
       - waterpump-network
     profiles:
