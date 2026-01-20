@@ -20,7 +20,7 @@ settings = get_settings()
 @router.get("/realtime/batch", summary="批量实时数据")
 async def get_realtime_batch():
     """
-    获取所有设备实时数据 (6个水泵 + 1个压力表)
+    获取所有设备实时数据 (6个水泵 + 1个压力表 + 振动)
     
     返回格式：
     {
@@ -34,19 +34,7 @@ async def get_realtime_batch():
     }
     """
     try:
-        # Mock模式：使用模拟数据
-        if settings.use_mock_data:
-            data = MockService.generate_realtime_batch()
-            check_mock_alarms(data)
-            
-            return {
-                "success": True,
-                "timestamp": datetime.utcnow().isoformat() + "Z",
-                "source": "mock",
-                "data": data
-            }
-        
-        # 真实模式：优先使用内存缓存
+        # 优先使用内存缓存 (Mock/真实都走统一缓存)
         cached_data = get_latest_data()
         if cached_data:
             pumps = []
@@ -69,6 +57,18 @@ async def get_realtime_batch():
                     "pumps": pumps,
                     "pressure": pressure
                 }
+            }
+
+        # Mock模式：使用模拟数据
+        if settings.use_mock_data:
+            data = MockService.generate_realtime_batch()
+            check_mock_alarms(data)
+
+            return {
+                "success": True,
+                "timestamp": datetime.utcnow().isoformat() + "Z",
+                "source": "mock",
+                "data": data
             }
         
         # 缓存为空，查询InfluxDB
@@ -124,15 +124,6 @@ async def get_realtime_pressure():
     获取压力表实时数据
     """
     try:
-        if settings.use_mock_data:
-            data = MockService.generate_pressure_data()
-            return {
-                "success": True,
-                "timestamp": datetime.utcnow().isoformat() + "Z",
-                "source": "mock",
-                "data": data
-            }
-        
         cached_data = get_latest_data()
         if cached_data and "pressure" in cached_data:
             return {
@@ -140,6 +131,15 @@ async def get_realtime_pressure():
                 "timestamp": datetime.utcnow().isoformat() + "Z",
                 "source": "cache",
                 "data": cached_data["pressure"]
+            }
+
+        if settings.use_mock_data:
+            data = MockService.generate_pressure_data()
+            return {
+                "success": True,
+                "timestamp": datetime.utcnow().isoformat() + "Z",
+                "source": "mock",
+                "data": data
             }
         
         end = datetime.utcnow()
@@ -188,15 +188,6 @@ async def get_realtime_pump(pump_id: int):
     device_id = f"pump_{pump_id}"
     
     try:
-        if settings.use_mock_data:
-            data = MockService.generate_pump_data(pump_id)
-            return {
-                "success": True,
-                "timestamp": datetime.utcnow().isoformat() + "Z",
-                "source": "mock",
-                "data": data
-            }
-        
         cached_data = get_latest_data()
         if cached_data and device_id in cached_data:
             return {
@@ -204,6 +195,15 @@ async def get_realtime_pump(pump_id: int):
                 "timestamp": datetime.utcnow().isoformat() + "Z",
                 "source": "cache",
                 "data": {"pump_id": device_id, **cached_data[device_id]}
+            }
+
+        if settings.use_mock_data:
+            data = MockService.generate_pump_data(pump_id)
+            return {
+                "success": True,
+                "timestamp": datetime.utcnow().isoformat() + "Z",
+                "source": "mock",
+                "data": data
             }
         
         end = datetime.utcnow()

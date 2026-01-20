@@ -23,7 +23,12 @@ from app.core.local_cache import get_local_cache, CachedPoint
 from app.plc.plc_manager import get_plc_manager
 from app.tools.converter_elec import ElectricityConverter
 from app.tools.converter_pressure import PressureConverter
+from app.tools.converter_vibration import VibrationConverter
 from app.plc.parser_waterpump import parse_waterpump_db
+from app.plc.parser_status_waterpump import (
+    parse_status_waterpump_db,
+    parse_status_waterpump_master_db,
+)
 from app.core.threshold_store import check_alarm, check_pressure_alarm, get_pump_threshold, get_pressure_threshold
 from app.core.alarm_store import log_alarm
 
@@ -32,6 +37,7 @@ settings = get_settings()
 
 # Mock数据生成器（延迟导入，仅在mock模式下使用）
 _mock_generator = None
+_mock_generator_loaded = False
 
 _poll_task: Optional[asyncio.Task] = None
 _retry_task: Optional[asyncio.Task] = None
@@ -40,14 +46,16 @@ _is_running = False
 # 转换器实例
 _elec_conv = ElectricityConverter()
 _pres_conv = PressureConverter()
+_vib_conv = VibrationConverter()
 
 # 最新数据缓存 (供 API 查询)
 _latest_data: Dict[str, Any] = {}
+_latest_status: Dict[str, Any] = {}
 
 # 批量写入缓存 (30 次轮询)
 _point_buffer: deque = deque(maxlen=1000)  # 最大缓存 1000 个点
 _buffer_count = 0
-_batch_size = 30  # 30 次轮询后批量写入
+_batch_size = settings.batch_size  # 10 次轮询后批量写入
 
 # 统计信息
 _stats = {
@@ -59,6 +67,90 @@ _stats = {
     "last_write_time": None,
     "last_retry_time": None
 }
+
+
+def _extract_pump_index(device_id: str) -> int | None:
+    try:
+        parts = device_id.split("_")
+        for part in reversed(parts):
+            if part.isdigit():
+                return int(part)
+    except Exception:
+        return None
+    return None
+
+
+def _normalize_device_id(device_id: str, module_type: str) -> str:
+    if module_type == "PressureSensor":
+        return "pressure"
+    if module_type in ("ElectricityMeter", "VibrationSensor"):
+        idx = _extract_pump_index(device_id)
+        if idx:
+            return f"pump_{idx}"
+    return device_id
+
+
+def _get_mock_generator():
+    global _mock_generator, _mock_generator_loaded
+    if _mock_generator_loaded and _mock_generator is not None:
+        return _mock_generator
+
+    try:
+        from tests.mock.mock_data_generator import MockDataGenerator
+    except ImportError:
+        from pathlib import Path
+        import importlib.util
+        mock_path = Path(__file__).parent.parent.parent / "tests" / "mock" / "mock_data_generator.py"
+        spec = importlib.util.spec_from_file_location("mock_data_generator", mock_path)
+        mock_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mock_module)
+        MockDataGenerator = mock_module.MockDataGenerator
+
+    _mock_generator = MockDataGenerator()
+    _mock_generator_loaded = True
+    logger.info("Mock模式: 已加载模拟数据生成器")
+    return _mock_generator
+
+
+def _build_latest_cache(parsed_devices: Dict[str, Any], timestamp: datetime) -> Dict[str, Any]:
+    cache: Dict[str, Any] = {}
+
+    for device_id, device_data in parsed_devices.items():
+        for module_tag, module_data in device_data.get("modules", {}).items():
+            module_type = module_data.get("module_type")
+            raw_fields = module_data.get("fields", {})
+
+            if module_type == _elec_conv.MODULE_TYPE:
+                fields = _elec_conv.convert(raw_fields)
+                pump_id = _extract_pump_index(device_id)
+                if pump_id:
+                    key = f"pump_{pump_id}"
+                    cache.setdefault(key, {"id": pump_id, "timestamp": timestamp.isoformat()})
+                    cache[key].update({
+                        "voltage": fields.get("voltage", fields.get("Ua_0", 0.0)),
+                        "current": fields.get("current", fields.get("I_0", 0.0)),
+                        "power": fields.get("power", fields.get("Pt", 0.0)),
+                        "energy": fields.get("ImpEp", 0.0),
+                        "electricity": fields,
+                    })
+
+            elif module_type == _pres_conv.MODULE_TYPE:
+                fields = _pres_conv.convert(raw_fields)
+                cache["pressure"] = {
+                    "value": fields.get("pressure", 0.0),
+                    "pressure_kpa": fields.get("pressure_kpa", 0.0),
+                    "timestamp": timestamp.isoformat()
+                }
+
+            elif module_type == _vib_conv.MODULE_TYPE:
+                fields = _vib_conv.convert(raw_fields)
+                pump_id = _extract_pump_index(device_id)
+                if pump_id:
+                    key = f"pump_{pump_id}"
+                    cache.setdefault(key, {"id": pump_id, "timestamp": timestamp.isoformat()})
+                    cache[key]["vibration"] = fields
+
+    return cache
 
 
 # ============================================================
@@ -76,31 +168,13 @@ async def _read_plc_db2() -> Tuple[bool, bytes, str]:
     """
     global _mock_generator
     
-    # DB2 配置: 338 字节 (6个电表×56 + 压力表2)
+    # DB2 配置: 1034 字节 (6个电表×56 + 压力表2 + 6个振动模块)
     DB_NUMBER = 2
-    DB_SIZE = 338
+    DB_SIZE = 1034
     
     if settings.use_mock_data:
-        # Mock模式: 使用模拟数据生成器
-        if _mock_generator is None:
-            # 动态导入 MockDataGenerator (避免硬依赖)
-            try:
-                from tests.mock.mock_data_generator import MockDataGenerator
-            except ImportError:
-                # 兼容旧路径
-                from pathlib import Path
-                import importlib.util
-                mock_path = Path(__file__).parent.parent.parent / "tests" / "mock" / "mock_data_generator.py"
-                spec = importlib.util.spec_from_file_location("mock_data_generator", mock_path)
-                mock_module = importlib.util.module_from_spec(spec)
-                spec.loader.exec_module(mock_module)
-                MockDataGenerator = mock_module.MockDataGenerator
-            
-            _mock_generator = MockDataGenerator()
-            logger.info("Mock模式: 已加载模拟数据生成器")
-        
-        # 生成模拟数据
-        db_data = _mock_generator.generate_all_db_data()
+        generator = _get_mock_generator()
+        db_data = generator.generate_all_db_data()
         db2_bytes = db_data.get(2, bytes(DB_SIZE))
         
         return (True, db2_bytes, "")
@@ -120,10 +194,83 @@ async def _read_plc_db2() -> Tuple[bool, bytes, str]:
         return (success, data, err)
 
 
+async def _read_plc_db1() -> Tuple[bool, bytes, str]:
+    """读取 PLC DB1 主站状态块 (80字节)"""
+    global _mock_generator
+
+    DB_NUMBER = 1
+    DB_SIZE = 80
+
+    if settings.use_mock_data:
+        generator = _get_mock_generator()
+        db_data = generator.generate_all_db_data()
+        db1_bytes = db_data.get(1, bytes(DB_SIZE))
+        return (True, db1_bytes, "")
+
+    plc = get_plc_manager()
+    if not plc.is_connected():
+        success, err = plc.connect()
+        if not success:
+            return (False, b"", f"PLC连接失败: {err}")
+
+    success, data, err = plc.read_db(DB_NUMBER, 0, DB_SIZE)
+    return (success, data, err)
+
+
+async def _read_plc_db3() -> Tuple[bool, bytes, str]:
+    """读取 PLC DB3 从站状态块 (80字节)"""
+    global _mock_generator
+
+    DB_NUMBER = 3
+    DB_SIZE = 80
+
+    if settings.use_mock_data:
+        generator = _get_mock_generator()
+        db_data = generator.generate_all_db_data()
+        db3_bytes = db_data.get(3, bytes(DB_SIZE))
+        return (True, db3_bytes, "")
+
+    plc = get_plc_manager()
+    if not plc.is_connected():
+        success, err = plc.connect()
+        if not success:
+            return (False, b"", f"PLC连接失败: {err}")
+
+    success, data, err = plc.read_db(DB_NUMBER, 0, DB_SIZE)
+    return (success, data, err)
+
+
+def _build_status_cache(
+    db1_bytes: Optional[bytes],
+    db3_bytes: Optional[bytes],
+    source: str,
+    timestamp: datetime,
+) -> Dict[str, Any]:
+    data: Dict[str, Any] = {}
+    summary_by_db: Dict[str, Any] = {}
+
+    if db1_bytes:
+        parsed_db1 = parse_status_waterpump_master_db(db1_bytes, only_enabled=True)
+        data["db1"] = parsed_db1.get("devices", [])
+        summary_by_db["db1"] = parsed_db1.get("summary", {})
+
+    if db3_bytes:
+        parsed_db3 = parse_status_waterpump_db(db3_bytes, only_enabled=True)
+        data["db3"] = parsed_db3.get("devices", [])
+        summary_by_db["db3"] = parsed_db3.get("summary", {})
+
+    return {
+        "data": data,
+        "summary_by_db": summary_by_db,
+        "source": source,
+        "timestamp": timestamp.isoformat() + "Z",
+    }
+
+
 # ============================================================
 # 报警检测函数
 # ============================================================
-def _check_and_log_alarms(sensor_data: Dict[str, Any]):
+def _check_and_log_alarms(cache_data: Dict[str, Any]):
     """
     检测数据是否触发报警阈值，并记录报警日志
     
@@ -132,17 +279,11 @@ def _check_and_log_alarms(sensor_data: Dict[str, Any]):
     """
     # 检测6个水泵电表数据
     for idx in range(6):
-        meter_key = f"meter_{idx+1}"
         pump_id = idx + 1
         device_id = f"pump_{pump_id}"
-        
-        if meter_key not in sensor_data or "error" in sensor_data[meter_key]:
-            continue
-        
-        meter = sensor_data[meter_key]
-        
-        # 检查电流 (使用Pt总功率对应的电流，或I_0)
-        current = meter.get("I_0", 0)
+        pump_data = cache_data.get(device_id, {})
+
+        current = pump_data.get("current", 0)
         current_alarm = check_alarm(pump_id, "current", current)
         if current_alarm:
             threshold = get_pump_threshold(pump_id, "current")
@@ -157,7 +298,7 @@ def _check_and_log_alarms(sensor_data: Dict[str, Any]):
             )
         
         # 检查功率
-        power = meter.get("Pt", 0)
+        power = pump_data.get("power", 0)
         power_alarm = check_alarm(pump_id, "power", power)
         if power_alarm:
             threshold = get_pump_threshold(pump_id, "power")
@@ -170,10 +311,31 @@ def _check_and_log_alarms(sensor_data: Dict[str, Any]):
                 threshold=threshold_val,
                 level=power_alarm,
             )
+
+        # 检查振动
+        vibration = pump_data.get("vibration")
+        if isinstance(vibration, dict):
+            vib_value = max(
+                vibration.get("VX", 0.0),
+                vibration.get("VY", 0.0),
+                vibration.get("VZ", 0.0),
+            )
+            vib_alarm = check_alarm(pump_id, "vibration", vib_value)
+            if vib_alarm:
+                threshold = get_pump_threshold(pump_id, "vibration")
+                threshold_val = threshold["warning_max"] if vib_alarm == "alarm" else threshold["normal_max"]
+                log_alarm(
+                    device_id=device_id,
+                    alarm_type="vibration_high",
+                    param_name="vibration",
+                    value=vib_value,
+                    threshold=threshold_val,
+                    level=vib_alarm,
+                )
     
     # 检测压力
-    if "pressure" in sensor_data and "error" not in sensor_data["pressure"]:
-        pressure = sensor_data["pressure"].get("pressure", 0)
+    if "pressure" in cache_data:
+        pressure = cache_data["pressure"].get("value", 0)
         pressure_alarm = check_pressure_alarm(pressure)
         
         if pressure_alarm:
@@ -325,7 +487,7 @@ async def _retry_cached_data():
 # ============================================================
 async def _poll_loop():
     """轮询主循环"""
-    global _latest_data, _buffer_count, _stats
+    global _latest_data, _latest_status, _buffer_count, _stats
     
     poll_count = 0
     
@@ -336,59 +498,79 @@ async def _poll_loop():
         
         try:
             # ========================================
+            # Step 0: 读取 DB1/DB3/DB2 (Mock模式一次生成)
+            # ========================================
+            if settings.use_mock_data:
+                generator = _get_mock_generator()
+                db_data = generator.generate_all_db_data()
+                db1_bytes = db_data.get(1)
+                db3_bytes = db_data.get(3)
+                db2_bytes = db_data.get(2)
+                success_db1, success_db3, success_db2 = True, True, True
+                err_db1 = err_db3 = err_db2 = ""
+            else:
+                success_db1, db1_bytes, err_db1 = await _read_plc_db1()
+                success_db3, db3_bytes, err_db3 = await _read_plc_db3()
+                success_db2, db2_bytes, err_db2 = await _read_plc_db2()
+
+            if not success_db1:
+                logger.warning(f"[poll #{poll_count}] 读取 DB1 失败: {err_db1}")
+                db1_bytes = None
+
+            if not success_db3:
+                logger.warning(f"[poll #{poll_count}] 读取 DB3 失败: {err_db3}")
+                db3_bytes = None
+
+            if db1_bytes or db3_bytes:
+                source = "mock" if settings.use_mock_data else "plc"
+                _latest_status.update(_build_status_cache(db1_bytes, db3_bytes, source, timestamp))
+
+            # ========================================
             # Step 1: 读取 DB2 数据
             # ========================================
-            success_db2, db2_bytes, err_db2 = await _read_plc_db2()
             
             if not success_db2:
                 logger.error(f"[poll #{poll_count}] 读取 DB2 失败: {err_db2}")
                 await asyncio.sleep(settings.plc_poll_interval)
                 continue
             
-            sensor_data = parse_waterpump_db(db2_bytes)
-            _latest_data = sensor_data
+            parsed_devices = parse_waterpump_db(db2_bytes)
+            _latest_data = _build_latest_cache(parsed_devices, timestamp)
             
             # ========================================
             # Step 2: 数据加入缓存
             # ========================================
             written_count = 0
             
-            # 电表数据
-            for idx in range(6):
-                device_id = f"pump_meter_{idx+1}"
-                meter_key = f"meter_{idx+1}"
-                
-                if meter_key not in sensor_data or "error" in sensor_data[meter_key]:
-                    continue
-                
-                fields = _elec_conv.convert(sensor_data[meter_key])
-                point = build_point(
-                    measurement="sensor_data",
-                    tags={"device_id": device_id, "module_type": _elec_conv.MODULE_TYPE},
-                    fields=fields,
-                    timestamp=timestamp
-                )
-                if point:
-                    _point_buffer.append(point)
-                    written_count += 1
-            
-            # 压力表数据
-            if "pressure" in sensor_data and "error" not in sensor_data["pressure"]:
-                fields = _pres_conv.convert(sensor_data["pressure"])
-                point = build_point(
-                    measurement="sensor_data",
-                    tags={"device_id": "pump_pressure", "module_type": _pres_conv.MODULE_TYPE},
-                    fields=fields,
-                    timestamp=timestamp
-                )
-                if point:
-                    _point_buffer.append(point)
-                    written_count += 1
+            for device_id, device_data in parsed_devices.items():
+                for module_tag, module_data in device_data.get("modules", {}).items():
+                    module_type = module_data.get("module_type")
+                    raw_fields = module_data.get("fields", {})
+
+                    if module_type == _elec_conv.MODULE_TYPE:
+                        fields = _elec_conv.convert(raw_fields)
+                    elif module_type == _pres_conv.MODULE_TYPE:
+                        fields = _pres_conv.convert(raw_fields)
+                    elif module_type == _vib_conv.MODULE_TYPE:
+                        fields = _vib_conv.convert(raw_fields)
+                    else:
+                        continue
+
+                    normalized_id = _normalize_device_id(device_id, module_type)
+                    point = build_point(
+                        measurement="sensor_data",
+                        tags={"device_id": normalized_id, "module_type": module_type},
+                        fields=fields,
+                        timestamp=timestamp
+                    )
+                    if point:
+                        _point_buffer.append(point)
+                        written_count += 1
             
             # ========================================
             # Step 3: 报警检测
             # ========================================
-            _check_and_log_alarms(sensor_data)
+            _check_and_log_alarms(_latest_data)
             
             # ========================================
             # Step 4: 检查是否需要批量写入
@@ -502,6 +684,11 @@ async def stop_polling():
 def get_latest_data() -> Dict[str, Any]:
     """获取最新的传感器数据"""
     return _latest_data.copy()
+
+
+def get_latest_status() -> Dict[str, Any]:
+    """获取最新的状态位缓存 (DB1/DB3)"""
+    return _latest_status.copy()
 
 
 def is_polling_running() -> bool:

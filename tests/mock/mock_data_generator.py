@@ -4,7 +4,7 @@
 # 功能:
 # 1. 生成符合PLC DB块结构的原始数据
 # 2. 模拟水泵房电表、压力传感器、设备状态
-# 3. 支持 DB1(设备状态) 和 DB2(传感器数据)
+# 3. 支持 DB1/DB3(设备状态) 和 DB2(传感器数据)
 # ============================================================
 
 import struct
@@ -31,6 +31,8 @@ class MockDataGenerator:
             
             # 压力传感器基础值
             'pressure': 2.5,  # MPa
+            # 振动传感器基础值 (mm/s)
+            'vibration': [0.6, 0.7, 0.5, 0.8, 0.65, 0.55],
         }
         
         # 时间累计值 (用于生成连续变化的数据)
@@ -62,10 +64,10 @@ class MockDataGenerator:
         return base * (1 + wave)
     
     # ============================================================
-    # DB1: 设备状态数据 (56 字节)
+    # DB1: 设备状态数据 (80 字节)
     # ============================================================
     def generate_db1_status(self) -> bytes:
-        """生成 DB1 设备状态数据 (56 字节)
+        """生成 DB1 设备状态数据 (80 字节)
         
         每个设备状态块: 4 字节
         - Byte 0: 状态位 (DONE=0x01, BUSY=0x02, ERROR=0x04)
@@ -80,12 +82,14 @@ class MockDataGenerator:
         - waterpump_5: 偏移 16
         - waterpump_6: 偏移 20
         """
-        data = bytearray(56)
-        
-        device_offsets = [0, 4, 8, 12, 16, 20]
+        data = bytearray(80)
+
+        # 20 个状态块 (0-76, 步长4)
+        device_offsets = list(range(0, 80, 4))
         
         for idx, offset in enumerate(device_offsets):
-            if self._device_running[idx]:
+            running = self._device_running[idx % len(self._device_running)]
+            if running:
                 # 95% 正常运行, 3% 忙碌, 2% 错误
                 r = random.random()
                 if r < 0.95:
@@ -103,12 +107,40 @@ class MockDataGenerator:
                 data[offset+2:offset+4] = struct.pack(">H", 0)
         
         return bytes(data)
+
+    # ============================================================
+    # DB3: 从站状态数据 (80 字节)
+    # ============================================================
+    def generate_db3_status(self) -> bytes:
+        """生成 DB3 从站状态数据 (80 字节)
+
+        结构:
+        - Byte 0, Bit 0: Error
+        - Byte 2-3: Status (Word)
+        """
+        data = bytearray(80)
+        device_offsets = list(range(0, 80, 4))
+
+        for idx, offset in enumerate(device_offsets):
+            running = self._device_running[idx % len(self._device_running)]
+
+            if running:
+                # 95% 正常, 5% 错误
+                error = random.random() >= 0.95
+                data[offset] = 0x01 if error else 0x00
+                status_code = 0x8001 if error else 0x0000
+                data[offset + 2:offset + 4] = struct.pack(">H", status_code)
+            else:
+                data[offset] = 0x00
+                data[offset + 2:offset + 4] = struct.pack(">H", 0x0000)
+
+        return bytes(data)
     
     # ============================================================
-    # DB2: 传感器数据 (338 字节)
+    # DB2: 传感器数据 (1034 字节)
     # ============================================================
     def generate_db2_sensors(self) -> bytes:
-        """生成 DB2 传感器数据 (338 字节)
+        """生成 DB2 传感器数据 (1034 字节)
         
         结构:
         - 6 个水泵电表: 每个 56 字节 (14 个 REAL 值)
@@ -122,7 +154,7 @@ class MockDataGenerator:
         - Pa, Pb, Pc (分相功率, 3x4=12B)
         - ImpEp (累计电量, 4B)
         """
-        data = bytearray(338)
+        data = bytearray(1034)
         
         for idx in range(6):
             offset = idx * 56
@@ -177,6 +209,71 @@ class MockDataGenerator:
         # 假设压力传感器原始值范围 0-10000 对应 0-10 MPa
         pressure_raw = int(pressure * 1000)
         data[336:338] = struct.pack(">H", min(65535, max(0, pressure_raw)))
+
+        # 振动传感器 (6个, 起始偏移 338, 模块大小 84字节，PLC实际偏移: 338/422/506/590/674/758)
+        vib_base_offsets = [338, 422, 506, 590, 674, 758]
+        for idx, base in enumerate(vib_base_offsets):
+            base_v = self._base_values['vibration'][idx]
+            vib_vx = self._add_sine_wave(base_v, amplitude=0.2, period=30)
+            vib_vy = self._add_sine_wave(base_v * 0.9, amplitude=0.2, period=35)
+            vib_vz = self._add_sine_wave(base_v * 1.1, amplitude=0.2, period=40)
+            freq = 50.0 + random.uniform(-3, 3)
+
+            def _write_word(offset: int, value: float, scale: float):
+                raw = int(max(0, min(65535, value / scale)))
+                data[base + offset: base + offset + 2] = struct.pack(">H", raw)
+
+            # 位移幅值 (μm) DX/DY/DZ
+            _write_word(0, vib_vx * 1000, 1.0)
+            _write_word(2, vib_vy * 1000, 1.0)
+            _write_word(4, vib_vz * 1000, 1.0)
+
+            # 频率 (Hz) HZX/HZY/HZZ, scale=0.1
+            _write_word(6, freq, 0.1)
+            _write_word(8, freq, 0.1)
+            _write_word(10, freq, 0.1)
+
+            # X轴数据块
+            _write_word(12, 2.0, 1.0)  # CFX
+            _write_word(14, 2.5 + random.uniform(-0.3, 0.3), 0.01)  # KX
+            _write_word(16, 2.6 + random.uniform(-0.3, 0.3), 0.01)  # AAVGX
+            _write_word(18, vib_vx * 1.2, 0.1)  # VARX
+            _write_word(20, vib_vx * 800, 1.0)  # RRAX 位移峰值
+            _write_word(22, 1.5, 0.01)  # WX 包络加速度
+            _write_word(24, 10, 1.0)  # PIX
+            _write_word(26, 12, 1.0)  # PCX
+            _write_word(28, 14, 1.0)  # SKX
+            _write_word(30, vib_vx, 0.1)  # VRMSX
+            _write_word(32, vib_vx * 1.1, 0.1)  # VKX
+            _write_word(34, vib_vx * 900, 1.0)  # DRMSX 位移RMS
+
+            # Y轴数据块
+            _write_word(36, 2.1, 1.0)  # CFY
+            _write_word(38, 2.6 + random.uniform(-0.3, 0.3), 0.01)  # KY
+            _write_word(40, 2.7 + random.uniform(-0.3, 0.3), 0.01)  # AAVGY
+            _write_word(42, vib_vy * 1.2, 0.1)  # VARY
+            _write_word(44, vib_vy * 800, 1.0)  # RRAY
+            _write_word(46, 1.6, 0.01)  # WY
+            _write_word(48, 10, 1.0)  # PIY
+            _write_word(50, 12, 1.0)  # PCY
+            _write_word(52, 14, 1.0)  # SKY
+            _write_word(54, vib_vy, 0.1)  # VRMSY
+            _write_word(56, vib_vy * 1.1, 0.1)  # VKY
+            _write_word(58, vib_vy * 900, 1.0)  # DRMSY
+
+            # Z轴数据块
+            _write_word(60, 2.2, 1.0)  # CFZ
+            _write_word(62, 2.7 + random.uniform(-0.3, 0.3), 0.01)  # KZ
+            _write_word(64, 2.8 + random.uniform(-0.3, 0.3), 0.01)  # AAVGZ
+            _write_word(66, vib_vz * 1.2, 0.1)  # VARZ
+            _write_word(68, vib_vz * 800, 1.0)  # RRAZ
+            _write_word(70, 1.7, 0.01)  # WZ
+            _write_word(72, 10, 1.0)  # PIZ
+            _write_word(74, 12, 1.0)  # PCZ
+            _write_word(76, 14, 1.0)  # SKZ
+            _write_word(78, vib_vz, 0.1)  # VRMSZ
+            _write_word(80, vib_vz * 1.1, 0.1)  # VKZ
+            _write_word(82, vib_vz * 900, 1.0)  # DRMSZ
         
         return bytes(data)
     
@@ -194,6 +291,7 @@ class MockDataGenerator:
         return {
             1: self.generate_db1_status(),
             2: self.generate_db2_sensors(),
+            3: self.generate_db3_status(),
         }
     
     def get_device_status(self) -> Dict[str, bool]:

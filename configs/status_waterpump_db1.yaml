@@ -1,0 +1,163 @@
+# ============================================================
+# DB1 状态数据块配置 (MBValueTemp) - Master Status
+# ============================================================
+# 对应 PLC DB1 "MBValueTemp"
+# 包含 Modbus 主站指令块的状态 (Done, Busy, Error, Status)
+#
+# 结构 (4字节):
+#   - Done:   Bool (Byte 0, Bit 0)
+#   - Busy:   Bool (Byte 0, Bit 1)
+#   - Error:  Bool (Byte 0, Bit 2)
+#   - Status: Word (Byte 2)
+# ============================================================
+
+db_block:
+  db_number: 1
+  db_name: "MBValueTemp"
+  total_size: 80
+  description: "Modbus 主站通信状态数据块 (Master Instruction Status)"
+
+# 主站状态模块定义
+status_module:
+  module_size: 4
+  fields:
+    - name: "done"
+      display_name: "完成标志"
+      data_type: "Bool"
+      byte_offset: 0
+      bit_offset: 0
+      description: "true = 上一次作业已完成"
+      
+    - name: "busy"
+      display_name: "忙碌标志"
+      data_type: "Bool"
+      byte_offset: 0
+      bit_offset: 1
+      description: "true = 作业正在处理中"
+      
+    - name: "error"
+      display_name: "错误标志"
+      data_type: "Bool"
+      byte_offset: 0
+      bit_offset: 2
+      description: "true = 作业出错"
+    
+    - name: "status"
+      display_name: "状态码"
+      data_type: "Word"
+      byte_offset: 2
+      description: "错误代码或状态信息"
+
+# 设备映射表
+devices:
+  # ------------------------------------------------
+  # 系统及通信负载
+  # ------------------------------------------------
+  - device_id: "status_master_load"
+    device_name: "主站通信负载"
+    plc_name: "MB_COMM_LOAD"
+    start_offset: 0
+
+  # ------------------------------------------------
+  # 电表主站状态 (ElectricityMeter 0-11)
+  # ------------------------------------------------
+  - device_id: "status_master_meter_0"
+    device_name: "电表1主站状态"
+    plc_name: "DB_MASTER_ELEC_0"
+    start_offset: 4
+    
+  - device_id: "status_master_meter_1"
+    device_name: "电表2主站状态"
+    plc_name: "DB_MASTER_ELEC_1"
+    start_offset: 8
+
+  - device_id: "status_master_meter_2"
+    device_name: "电表3主站状态"
+    plc_name: "DB_MASTER_ELEC_2"
+    start_offset: 12
+
+  - device_id: "status_master_meter_3"
+    device_name: "电表4主站状态"
+    plc_name: "DB_MASTER_ELEC_3"
+    start_offset: 16
+
+  - device_id: "status_master_meter_4"
+    device_name: "电表5主站状态"
+    plc_name: "DB_MASTER_ELEC_4"
+    start_offset: 20
+
+  - device_id: "status_master_meter_5"
+    device_name: "电表6主站状态"
+    plc_name: "DB_MASTER_ELEC_5"
+    start_offset: 24
+
+  - device_id: "status_master_meter_6"
+    device_name: "电表7主站状态"
+    plc_name: "DB_MASTER_ELEC_6"
+    start_offset: 28
+
+  - device_id: "status_master_meter_7"
+    device_name: "电表8主站状态"
+    plc_name: "DB_MASTER_ELEC_7"
+    start_offset: 32
+
+  - device_id: "status_master_meter_8"
+    device_name: "电表9主站状态"
+    plc_name: "DB_MASTER_ELEC_8"
+    start_offset: 36
+    
+  - device_id: "status_master_meter_9"
+    device_name: "电表10主站状态"
+    plc_name: "DB_MASTER_ELEC_9"
+    start_offset: 40
+
+  - device_id: "status_master_meter_10"
+    device_name: "电表11主站状态"
+    plc_name: "DB_MASTER_ELEC_10"
+    start_offset: 44
+
+  - device_id: "status_master_meter_11"
+    device_name: "电表12主站状态"
+    plc_name: "DB_MASTER_ELEC_11"
+    start_offset: 48
+
+  # ------------------------------------------------
+  # 压力主站状态
+  # ------------------------------------------------
+  - device_id: "status_master_press"
+    device_name: "总管压力主站状态"
+    plc_name: "DB_MASTER_PRESS"
+    start_offset: 52
+
+  # ------------------------------------------------
+  # 震动传感器主站状态 (VIB 1-6)
+  # ------------------------------------------------
+  - device_id: "status_master_vib_1"
+    device_name: "1号泵震动主站状态"
+    plc_name: "DB_MASTER_VIB_1"
+    start_offset: 56
+
+  - device_id: "status_master_vib_2"
+    device_name: "2号泵震动主站状态"
+    plc_name: "DB_MASTER_VIB_2"
+    start_offset: 60
+
+  - device_id: "status_master_vib_3"
+    device_name: "3号泵震动主站状态"
+    plc_name: "DB_MASTER_VIB_3"
+    start_offset: 64
+
+  - device_id: "status_master_vib_4"
+    device_name: "4号泵震动主站状态"
+    plc_name: "DB_MASTER_VIB_4"
+    start_offset: 68
+
+  - device_id: "status_master_vib_5"
+    device_name: "5号泵震动主站状态"
+    plc_name: "DB_MASTER_VIB_5"
+    start_offset: 72
+
+  - device_id: "status_master_vib_6"
+    device_name: "6号泵震动主站状态"
+    plc_name: "DB_MASTER_VIB_6"
+    start_offset: 76

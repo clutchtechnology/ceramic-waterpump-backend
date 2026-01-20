@@ -1,0 +1,150 @@
+# ============================================================
+# DB3 状态数据块配置 (DataState) - Slave Status
+# ============================================================
+# 对应 PLC DB3 "DataState"
+# 包含设备Modbus通信的从站侧状态 (通信是否成功)
+#
+# 结构 (4字节):
+#   Struct:
+#     - Error: Bool (Byte 0, Bit 0)
+#     - Status: Word (Byte 2)
+# ============================================================
+
+db_block:
+  db_number: 3
+  db_name: "DataState"
+  total_size: 80
+  description: "设备通信从站状态 (Slave Response Status)"
+
+# 通用状态模块定义
+status_module:
+  module_size: 4
+  fields:
+    - name: "error"
+      display_name: "通信错误"
+      data_type: "Bool"
+      byte_offset: 0
+      bit_offset: 0
+      description: "true = 发生通信错误"
+    
+    - name: "status"
+      display_name: "状态码"
+      data_type: "Word"
+      byte_offset: 2
+      description: "Modbus 状态字 (16#0 = 正常)"
+
+# 设备映射表
+devices:
+  # ------------------------------------------------
+  # 电表 (ElectricityMeter 0-11)
+  # Offset: 0.0, 4.0, ..., 44.0. (Total 12)
+  # ------------------------------------------------
+  - device_id: "status_meter_0"
+    device_name: "电表1状态"
+    plc_name: "ElectricityMeter_0"
+    start_offset: 0
+    
+  - device_id: "status_meter_1"
+    device_name: "电表2状态"
+    plc_name: "ElectricityMeter_1"
+    start_offset: 4
+
+  - device_id: "status_meter_2"
+    device_name: "电表3状态"
+    plc_name: "ElectricityMeter_2"
+    start_offset: 8
+
+  - device_id: "status_meter_3"
+    device_name: "电表4状态"
+    plc_name: "ElectricityMeter_3"
+    start_offset: 12
+
+  - device_id: "status_meter_4"
+    device_name: "电表5状态"
+    plc_name: "ElectricityMeter_4"
+    start_offset: 16
+
+  - device_id: "status_meter_5"
+    device_name: "电表6状态"
+    plc_name: "ElectricityMeter_5"
+    start_offset: 20
+
+  - device_id: "status_meter_6"
+    device_name: "电表7状态"
+    plc_name: "ElectricityMeter_6"
+    start_offset: 24
+
+  - device_id: "status_meter_7"
+    device_name: "电表8状态"
+    plc_name: "ElectricityMeter_7"
+    start_offset: 28
+
+  - device_id: "status_meter_8"
+    device_name: "电表9状态"
+    plc_name: "ElectricityMeter_8"
+    start_offset: 32
+
+  - device_id: "status_meter_9"
+    device_name: "电表10状态"
+    plc_name: "ElectricityMeter_9"
+    start_offset: 36
+    
+  - device_id: "status_meter_10"
+    device_name: "电表11状态"
+    plc_name: "ElectricityMeter_10"
+    start_offset: 40
+
+  - device_id: "status_meter_11"
+    device_name: "电表12状态"
+    plc_name: "ElectricityMeter_11"
+    start_offset: 44
+
+  # ------------------------------------------------
+  # 压力传感器 (PRESS)
+  # Offset: 52.0
+  # ------------------------------------------------
+  - device_id: "status_press"
+    device_name: "总管压力状态"
+    plc_name: "PRESS"
+    start_offset: 52
+    data_device_id: "pump_pressure"
+
+  # ------------------------------------------------
+  # 震动传感器 (VIB 1-6)
+  # Offset: 56.0, 60.0 ...
+  # ------------------------------------------------
+  - device_id: "status_vib_1"
+    device_name: "1号泵震动状态"
+    plc_name: "VIB_1"
+    start_offset: 56
+    data_device_id: "pump_vibration_1"
+
+  - device_id: "status_vib_2"
+    device_name: "2号泵震动状态"
+    plc_name: "VIB_2"
+    start_offset: 60
+    data_device_id: "pump_vibration_2"
+
+  - device_id: "status_vib_3"
+    device_name: "3号泵震动状态"
+    plc_name: "VIB_3"
+    start_offset: 64
+    data_device_id: "pump_vibration_3"
+
+  - device_id: "status_vib_4"
+    device_name: "4号泵震动状态"
+    plc_name: "VIB_4"
+    start_offset: 68
+    data_device_id: "pump_vibration_4"
+
+  - device_id: "status_vib_5"
+    device_name: "5号泵震动状态"
+    plc_name: "VIB_5"
+    start_offset: 72
+    data_device_id: "pump_vibration_5"
+
+  - device_id: "status_vib_6"
+    device_name: "6号泵震动状态"
+    plc_name: "VIB_6"
+    start_offset: 76
+    data_device_id: "pump_vibration_6"

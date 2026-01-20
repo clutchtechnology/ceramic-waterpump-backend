@@ -108,3 +108,272 @@ plc_modules:
         data_type: "Word"
         offset: 2
         description: "16#0 = 正常"
+
+  # ============================================================
+  # 振动传感器模块 (VibrationSensor)
+  # ============================================================
+  - module_type: "VibrationSensor"
+    size: 84
+    description: "振动传感器核心指标（对齐料仓VibrationSelected）"
+    fields:
+      # --- 位移幅值 (Offset 0-4) ---
+      - name: "DX"
+        display_name: "X轴振动位移幅值"
+        data_type: "Word"
+        offset: 0
+        unit: "μm"
+        scale: 1.0
+      - name: "DY"
+        display_name: "Y轴振动位移幅值"
+        data_type: "Word"
+        offset: 2
+        unit: "μm"
+        scale: 1.0
+      - name: "DZ"
+        display_name: "Z轴振动位移幅值"
+        data_type: "Word"
+        offset: 4
+        unit: "μm"
+        scale: 1.0
+
+      # --- 频率 (Offset 6-10) ---
+      - name: "HZX"
+        display_name: "X轴振动频率"
+        data_type: "Word"
+        offset: 6
+        unit: "Hz"
+        scale: 0.1
+      - name: "HZY"
+        display_name: "Y轴振动频率"
+        data_type: "Word"
+        offset: 8
+        unit: "Hz"
+        scale: 0.1
+      - name: "HZZ"
+        display_name: "Z轴振动频率"
+        data_type: "Word"
+        offset: 10
+        unit: "Hz"
+        scale: 0.1
+
+      # --- X轴数据块 (Offset 12-34) ---
+      - name: "CFX"
+        display_name: "X轴加速度峰值倍率"
+        data_type: "Word"
+        offset: 12
+        unit: "倍"
+        scale: 1.0
+      - name: "KX"
+        display_name: "X轴加速度峰值"
+        data_type: "Word"
+        offset: 14
+        unit: "m/s²"
+        scale: 0.01
+      - name: "AAVGX"
+        display_name: "X轴加速度峰峰值"
+        data_type: "Word"
+        offset: 16
+        unit: "m/s²"
+        scale: 0.01
+      - name: "VARX"
+        display_name: "X轴速度峰值"
+        data_type: "Word"
+        offset: 18
+        unit: "mm/s"
+        scale: 0.1
+      - name: "RRAX"
+        display_name: "X轴位移峰值"
+        data_type: "Word"
+        offset: 20
+        unit: "μm"
+        scale: 1.0
+      - name: "WX"
+        display_name: "X轴包络加速度"
+        data_type: "Word"
+        offset: 22
+        unit: "m/s²"
+        scale: 0.01
+      - name: "PIX"
+        display_name: "X轴峰值指标"
+        data_type: "Word"
+        offset: 24
+        unit: ""
+        scale: 1.0
+      - name: "PCX"
+        display_name: "X轴波峰指标"
+        data_type: "Word"
+        offset: 26
+        unit: ""
+        scale: 1.0
+      - name: "SKX"
+        display_name: "X轴峭度"
+        data_type: "Word"
+        offset: 28
+        unit: ""
+        scale: 1.0
+      - name: "VRMSX"
+        display_name: "X轴速度RMS值"
+        data_type: "Word"
+        offset: 30
+        unit: "mm/s"
+        scale: 0.1
+      - name: "VKX"
+        display_name: "X轴速度峰值"
+        data_type: "Word"
+        offset: 32
+        unit: "mm/s"
+        scale: 0.1
+      - name: "DRMSX"
+        display_name: "X轴位移RMS值"
+        data_type: "Word"
+        offset: 34
+        unit: "μm"
+        scale: 1.0
+
+      # --- Y轴数据块 (Offset 36-58) ---
+      - name: "CFY"
+        display_name: "Y轴加速度峰值倍率"
+        data_type: "Word"
+        offset: 36
+        unit: "倍"
+        scale: 1.0
+      - name: "KY"
+        display_name: "Y轴加速度峰值"
+        data_type: "Word"
+        offset: 38
+        unit: "m/s²"
+        scale: 0.01
+      - name: "AAVGY"
+        display_name: "Y轴加速度峰峰值"
+        data_type: "Word"
+        offset: 40
+        unit: "m/s²"
+        scale: 0.01
+      - name: "VARY"
+        display_name: "Y轴速度峰值"
+        data_type: "Word"
+        offset: 42
+        unit: "mm/s"
+        scale: 0.1
+      - name: "RRAY"
+        display_name: "Y轴位移峰值"
+        data_type: "Word"
+        offset: 44
+        unit: "μm"
+        scale: 1.0
+      - name: "WY"
+        display_name: "Y轴包络加速度"
+        data_type: "Word"
+        offset: 46
+        unit: "m/s²"
+        scale: 0.01
+      - name: "PIY"
+        display_name: "Y轴峰值指标"
+        data_type: "Word"
+        offset: 48
+        unit: ""
+        scale: 1.0
+      - name: "PCY"
+        display_name: "Y轴波峰指标"
+        data_type: "Word"
+        offset: 50
+        unit: ""
+        scale: 1.0
+      - name: "SKY"
+        display_name: "Y轴峭度"
+        data_type: "Word"
+        offset: 52
+        unit: ""
+        scale: 1.0
+      - name: "VRMSY"
+        display_name: "Y轴速度RMS值"
+        data_type: "Word"
+        offset: 54
+        unit: "mm/s"
+        scale: 0.1
+      - name: "VKY"
+        display_name: "Y轴速度峰值"
+        data_type: "Word"
+        offset: 56
+        unit: "mm/s"
+        scale: 0.1
+      - name: "DRMSY"
+        display_name: "Y轴位移RMS值"
+        data_type: "Word"
+        offset: 58
+        unit: "μm"
+        scale: 1.0
+
+      # --- Z轴数据块 (Offset 60-82) ---
+      - name: "CFZ"
+        display_name: "Z轴加速度峰值倍率"
+        data_type: "Word"
+        offset: 60
+        unit: "倍"
+        scale: 1.0
+      - name: "KZ"
+        display_name: "Z轴加速度峰值"
+        data_type: "Word"
+        offset: 62
+        unit: "m/s²"
+        scale: 0.01
+      - name: "AAVGZ"
+        display_name: "Z轴加速度峰峰值"
+        data_type: "Word"
+        offset: 64
+        unit: "m/s²"
+        scale: 0.01
+      - name: "VARZ"
+        display_name: "Z轴速度峰值"
+        data_type: "Word"
+        offset: 66
+        unit: "mm/s"
+        scale: 0.1
+      - name: "RRAZ"
+        display_name: "Z轴位移峰值"
+        data_type: "Word"
+        offset: 68
+        unit: "μm"
+        scale: 1.0
+      - name: "WZ"
+        display_name: "Z轴包络加速度"
+        data_type: "Word"
+        offset: 70
+        unit: "m/s²"
+        scale: 0.01
+      - name: "PIZ"
+        display_name: "Z轴峰值指标"
+        data_type: "Word"
+        offset: 72
+        unit: ""
+        scale: 1.0
+      - name: "PCZ"
+        display_name: "Z轴波峰指标"
+        data_type: "Word"
+        offset: 74
+        unit: ""
+        scale: 1.0
+      - name: "SKZ"
+        display_name: "Z轴峭度"
+        data_type: "Word"
+        offset: 76
+        unit: ""
+        scale: 1.0
+      - name: "VRMSZ"
+        display_name: "Z轴速度RMS值"
+        data_type: "Word"
+        offset: 78
+        unit: "mm/s"
+        scale: 0.1
+      - name: "VKZ"
+        display_name: "Z轴速度峰值"
+        data_type: "Word"
+        offset: 80
+        unit: "mm/s"
+        scale: 0.1
+      - name: "DRMSZ"
+        display_name: "Z轴位移RMS值"
+        data_type: "Word"
+        offset: 82
+        unit: "μm"
+        scale: 1.0

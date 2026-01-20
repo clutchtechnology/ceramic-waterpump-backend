@@ -49,8 +49,10 @@ api_router.include_router(devices_router)
 │  └─ GET  /api/realtime/{pump_id}  单个水泵实时数据          │
 │                                                             │
 │  【历史数据】 history.py                                     │
-│  ├─ GET  /api/history             历史数据查询              │
-│  └─ GET  /api/statistics          统计数据 (max/min/avg)    │
+│  ├─ GET  /api/history/press       压力历史数据              │
+│  ├─ GET  /api/history/elec        电表历史数据              │
+│  ├─ GET  /api/history/vibration   振动历史数据              │
+│  └─ GET  /api/history/alarm       报警历史数据              │
 │                                                             │
 │  【配置管理】 config.py                                      │
 │  ├─ GET  /api/config/thresholds   获取阈值配置              │
@@ -77,7 +79,7 @@ api_router.include_router(devices_router)
     ├── alarms.py         # 报警管理 (2 endpoints)
     └── devices.py        # 设备状态 (1 endpoint)
 
-总计: 12 个 API 端点
+总计: 14 个 API 端点
 """
 
 
@@ -98,8 +100,10 @@ def print_api_summary():
 ║    GET  /api/realtime/{pump_id}     单个水泵实时数据          ║
 ║                                                               ║
 ║  【历史数据】                                                  ║
-║    GET  /api/history                历史数据查询              ║
-║    GET  /api/statistics             统计数据查询              ║
+║    GET  /api/history/press          压力历史数据              ║
+║    GET  /api/history/elec           电表历史数据              ║
+║    GET  /api/history/vibration      振动历史数据              ║
+║    GET  /api/history/alarm          报警历史数据              ║
 ║                                                               ║
 ║  【配置管理】                                                  ║
 ║    GET  /api/config/thresholds      获取阈值配置              ║
@@ -113,7 +117,7 @@ def print_api_summary():
 ║    GET  /api/status/devices         设备通信状态              ║
 ║                                                               ║
 ╠═══════════════════════════════════════════════════════════════╣
-║  总计: 12 个端点  |  前缀: /api                                ║
+║  总计: 14 个端点  |  前缀: /api                                ║
 ╚═══════════════════════════════════════════════════════════════╝
 """
     print(summary)

@@ -3,53 +3,54 @@ from .converter_base import BaseConverter
 
 
 class ElectricityConverter(BaseConverter):
+    """三相电表数据转换器 (水泵房)
+
+    计算规则参考磨料车间/回转窑：
+    - 电流互感器变比默认 20（可覆盖）
+    - 电压: raw × 0.1 (V)
+    - 电流: raw × 0.001 × ratio (A)
+    - 功率: raw × 0.0001 × ratio (kW)
+    - 电能: raw × ratio (kWh)
     """
-    三相电表数据转换器
-    
-    PLC 中所有数据都是 Real 类型（4字节浮点数），直接对应物理值
-    无需缩放系数（PLC中已是实际值）
-    """
+
     MODULE_TYPE = "ElectricityMeter"
 
+    SCALE_VOLTAGE = 0.1
+    SCALE_CURRENT = 0.001
+    SCALE_POWER = 0.0001
+
+    # 默认变比 (与料仓/风机一致，可通过 current_ratio 覆盖)
+    DEFAULT_RATIO = 20
+
     def convert(self, raw_data: Dict[str, Any], **kwargs) -> Dict[str, Any]:
-        """
-        转换电表数据：保留所有关键字段
-        
-        输入字段：
-          - Uab_0, Uab_1, Uab_2: 线电压 (V)
-          - Ua_0, Ua_1, Ua_2: 相电压 (V)
-          - I_0, I_1, I_2: 相电流 (A)
-          - Pt: 总有功功率 (kW)
-          - Pa, Pb, Pc: 各相功率 (kW)
-          - ImpEp: 正向有功电能 (kWh)
-        
-        输出字段：
-          - 关键值: Pt, ImpEp, Ua_0, I_0 (用于实时展示)
-          - 详细值: 所有字段 (用于历史分析)
-        """
+        ratio = kwargs.get("current_ratio", self.DEFAULT_RATIO)
+
         return {
-            # 线电压（三相）
-            "Uab_0": round(self.get_field_value(raw_data, "Uab_0", 0.0), 1),
-            "Uab_1": round(self.get_field_value(raw_data, "Uab_1", 0.0), 1),
-            "Uab_2": round(self.get_field_value(raw_data, "Uab_2", 0.0), 1),
-            
-            # 相电压（三相）
-            "Ua_0": round(self.get_field_value(raw_data, "Ua_0", 0.0), 1),
-            "Ua_1": round(self.get_field_value(raw_data, "Ua_1", 0.0), 1),
-            "Ua_2": round(self.get_field_value(raw_data, "Ua_2", 0.0), 1),
-            
-            # 相电流（三相）
-            "I_0": round(self.get_field_value(raw_data, "I_0", 0.0), 2),
-            "I_1": round(self.get_field_value(raw_data, "I_1", 0.0), 2),
-            "I_2": round(self.get_field_value(raw_data, "I_2", 0.0), 2),
-            
-            # 功率
-            "Pt": round(self.get_field_value(raw_data, "Pt", 0.0), 2),  # 总有功
-            "Pa": round(self.get_field_value(raw_data, "Pa", 0.0), 2),  # A相
-            "Pb": round(self.get_field_value(raw_data, "Pb", 0.0), 2),  # B相
-            "Pc": round(self.get_field_value(raw_data, "Pc", 0.0), 2),  # C相
-            
-            # 电能
-            "ImpEp": round(self.get_field_value(raw_data, "ImpEp", 0.0), 2),
+            # 电压（三相，仅保留A相快捷字段）
+            "Uab_0": round(self.get_field_value(raw_data, "Uab_0", 0.0) * self.SCALE_VOLTAGE, 1),
+            "Uab_1": round(self.get_field_value(raw_data, "Uab_1", 0.0) * self.SCALE_VOLTAGE, 1),
+            "Uab_2": round(self.get_field_value(raw_data, "Uab_2", 0.0) * self.SCALE_VOLTAGE, 1),
+            "Ua_0": round(self.get_field_value(raw_data, "Ua_0", 0.0) * self.SCALE_VOLTAGE, 1),
+            "Ua_1": round(self.get_field_value(raw_data, "Ua_1", 0.0) * self.SCALE_VOLTAGE, 1),
+            "Ua_2": round(self.get_field_value(raw_data, "Ua_2", 0.0) * self.SCALE_VOLTAGE, 1),
+
+            # 电流 (乘变比)
+            "I_0": round(self.get_field_value(raw_data, "I_0", 0.0) * self.SCALE_CURRENT * ratio, 2),
+            "I_1": round(self.get_field_value(raw_data, "I_1", 0.0) * self.SCALE_CURRENT * ratio, 2),
+            "I_2": round(self.get_field_value(raw_data, "I_2", 0.0) * self.SCALE_CURRENT * ratio, 2),
+
+            # 功率 (乘变比)
+            "Pt": round(self.get_field_value(raw_data, "Pt", 0.0) * self.SCALE_POWER * ratio, 3),
+            "Pa": round(self.get_field_value(raw_data, "Pa", 0.0) * self.SCALE_POWER * ratio, 3),
+            "Pb": round(self.get_field_value(raw_data, "Pb", 0.0) * self.SCALE_POWER * ratio, 3),
+            "Pc": round(self.get_field_value(raw_data, "Pc", 0.0) * self.SCALE_POWER * ratio, 3),
+
+            # 电能 (乘变比)
+            "ImpEp": round(self.get_field_value(raw_data, "ImpEp", 0.0) * ratio, 3),
+
+            # 统一字段
+            "voltage": round(self.get_field_value(raw_data, "Ua_0", 0.0) * self.SCALE_VOLTAGE, 1),
+            "current": round(self.get_field_value(raw_data, "I_0", 0.0) * self.SCALE_CURRENT * ratio, 2),
+            "power": round(self.get_field_value(raw_data, "Pt", 0.0) * self.SCALE_POWER * ratio, 3),
         }
 

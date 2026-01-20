@@ -16,6 +16,7 @@ services:
       - DOCKER_INFLUXDB_INIT_ORG=waterpump
       - DOCKER_INFLUXDB_INIT_BUCKET=sensor_data
       - DOCKER_INFLUXDB_INIT_ADMIN_TOKEN=waterpump-token
+      - TZ=Asia/Shanghai
     networks:
       - waterpump-network
     deploy:
@@ -23,7 +24,7 @@ services:
         limits:
           memory: 4G
 
-  # Python Backend (Mock模式 - 默认配置)
+  # Python Backend (默认: Mock模式)
   backend:
     build: .
     container_name: waterpump-backend
@@ -43,18 +44,46 @@ services:
       - INFLUX_ORG=waterpump
       - INFLUX_BUCKET=sensor_data
       - SERVER_PORT=8081
-      - USE_MOCK_DATA=true
+      - USE_MOCK_DATA=${USE_MOCK_DATA:-true}
       - ENABLE_POLLING=true
+      - TZ=Asia/Shanghai
     networks:
       - waterpump-network
     profiles:
       - default
+
+  # Python Backend (Mock固定端口)
+  backend-mock:
+    build: .
+    container_name: waterpump-backend-mock
+    restart: unless-stopped
+    ports:
+      - '8084:8081'
+    depends_on:
+      - influxdb
+    volumes:
+      - .:/app
+      - ./configs:/app/configs
+      - ./data:/app/data
+    environment:
+      - PYTHONUNBUFFERED=1
+      - INFLUX_URL=http://influxdb:8086
+      - INFLUX_TOKEN=waterpump-token
+      - INFLUX_ORG=waterpump
+      - INFLUX_BUCKET=sensor_data
+      - SERVER_PORT=8081
+      - USE_MOCK_DATA=true
+      - ENABLE_POLLING=true
+      - TZ=Asia/Shanghai
+    networks:
+      - waterpump-network
+    profiles:
       - mock
 
   # Python Backend (真实PLC模式)
   backend-real:
     build: .
-    container_name: waterpump-backend
+    container_name: waterpump-backend-real
     restart: unless-stopped
     ports:
       - '8081:8081'
@@ -74,6 +103,7 @@ services:
       - USE_MOCK_DATA=false
       - USE_REAL_PLC=true
       - ENABLE_POLLING=true
+      - TZ=Asia/Shanghai
     networks:
       - waterpump-network
     profiles:

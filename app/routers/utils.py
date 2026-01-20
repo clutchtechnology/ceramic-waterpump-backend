@@ -78,6 +78,27 @@ def check_mock_alarms(data: Dict[str, Any]):
                 threshold=threshold_val,
                 level=power_alarm,
             )
+
+        # 检查振动
+        vibration = pump.get('vibration', {})
+        if isinstance(vibration, dict):
+            vib_value = max(
+                vibration.get('VX', 0.0),
+                vibration.get('VY', 0.0),
+                vibration.get('VZ', 0.0)
+            )
+            vib_alarm = check_alarm(pump_id, 'vibration', vib_value)
+            if vib_alarm:
+                threshold = get_pump_threshold(pump_id, 'vibration')
+                threshold_val = threshold['warning_max'] if vib_alarm == 'alarm' else threshold['normal_max']
+                log_alarm(
+                    device_id=device_id,
+                    alarm_type='vibration_high',
+                    param_name='vibration',
+                    value=vib_value,
+                    threshold=threshold_val,
+                    level=vib_alarm,
+                )
     
     # 检测压力
     pressure_data = data.get('pressure', {})

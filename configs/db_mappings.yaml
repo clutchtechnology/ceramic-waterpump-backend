@@ -4,19 +4,30 @@ db_mappings:
   # ============================================================
   - db_number: 2
     db_name: "Data_DB"
-    total_size: 338
-    config_file: "configs/config_waterpump.yaml"
+    total_size: 1034
+    config_file: "configs/config_waterpump_db2.yaml"
     parser_class: "WaterpumpParser"
     enabled: true
-    description: "6个电表 + 1个压力表 (真实PLC结构)"
+    description: "6个电表 + 1个压力表 + 6个振动传感器(核心指标对齐料仓)"
 
   # ============================================================
   # DB3 - 状态数据块 (DataState - 通信状态)
   # ============================================================
   - db_number: 3
     db_name: "DataState"
-    total_size: 52
-    config_file: "configs/status_waterpump.yaml"
+    total_size: 80
+    config_file: "configs/status_waterpump_db3.yaml"
     parser_class: "StatusWaterpumpParser"
     enabled: true
-    description: "12个电表状态 + 1个压力表状态"
+    description: "12个电表状态 + 1个压力表状态 + 6个振动状态"
+
+  # ============================================================
+  # DB1 - 主站状态块 (Master Status)
+  # ============================================================
+  - db_number: 1
+    db_name: "MBValueTemp"
+    total_size: 80
+    config_file: "configs/status_waterpump_db1.yaml"
+    parser_class: "StatusWaterpumpMasterParser"
+    enabled: true
+    description: "主站指令块状态 (Done/Busy/Error/Status)"

@@ -23,8 +23,8 @@ class Settings(BaseSettings):
     plc_slot: int = 1
     plc_timeout: int = 5000
 
-    # 批量写入
-    batch_size: int = 30
+    # 批量写入 (轮询12次后批量入库)
+    batch_size: int = 12
 
     # InfluxDB
     influx_url: str = ""

@@ -25,6 +25,13 @@ class MockService:
             else:
                 current_base = 55.0  # 电流过高
         
+        vibration = {
+            "VX": round(random.uniform(0.3, 1.2), 2),
+            "VY": round(random.uniform(0.3, 1.2), 2),
+            "VZ": round(random.uniform(0.3, 1.2), 2),
+            "TEMP": round(random.uniform(30.0, 45.0), 1),
+        }
+
         return {
             'id': pump_id,
             'voltage': round(voltage_base, 1),
@@ -32,6 +39,7 @@ class MockService:
             'power': round(power_base, 1),
             'status': MockService._calculate_status(voltage_base, current_base, power_base),
             'alarms': MockService._generate_alarms(voltage_base, current_base, power_base),
+            'vibration': vibration,
             'timestamp': datetime.now().isoformat()
         }
     

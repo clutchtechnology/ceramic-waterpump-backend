@@ -7,19 +7,24 @@ from datetime import datetime
 from fastapi import APIRouter
 
 from app.plc.plc_manager import get_plc_manager
-from app.plc.parser_status_waterpump import parse_status_waterpump_db
+from app.plc.parser_status_waterpump import (
+    parse_status_waterpump_db,
+    parse_status_waterpump_master_db,
+)
+from app.services.polling_service import get_latest_status
+from tests.mock.mock_data_generator import MockDataGenerator
 from config import get_settings
-from .utils import generate_mock_status
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["设备状态"])
 settings = get_settings()
+_mock_generator = MockDataGenerator()
 
 
 @router.get("/status/devices", summary="设备通信状态")
 async def get_device_status():
     """
-    获取所有设备的通信状态 (DB3 DataState)
+    获取所有设备的通信状态 (DB1 + DB3)
     
     返回格式：
     {
@@ -45,34 +50,62 @@ async def get_device_status():
     }
     """
     try:
-        # Mock模式
-        if settings.use_mock_data:
-            mock_data = generate_mock_status()
+        cached = get_latest_status()
+        if cached.get("data"):
             return {
                 "success": True,
-                "data": {"db3": mock_data["devices"]},
-                "summary": mock_data["summary"],
+                **cached
+            }
+
+        # Mock模式: 生成 DB1/DB3 并解析
+        if settings.use_mock_data:
+            db1_bytes = _mock_generator.generate_db1_status()
+            db3_bytes = _mock_generator.generate_db3_status()
+            db1_data = parse_status_waterpump_master_db(db1_bytes, only_enabled=True)
+            db3_data = parse_status_waterpump_db(db3_bytes, only_enabled=True)
+            return {
+                "success": True,
+                "data": {
+                    "db1": db1_data["devices"],
+                    "db3": db3_data["devices"],
+                },
+                "summary_by_db": {
+                    "db1": db1_data["summary"],
+                    "db3": db3_data["summary"],
+                },
                 "source": "mock",
                 "timestamp": datetime.utcnow().isoformat() + "Z"
             }
         
         # 真实PLC模式
         plc = get_plc_manager()
-        success, db3_bytes, err = plc.read_db(3, 0, 52)
-        
-        if not success:
+        success1, db1_bytes, err1 = plc.read_db(1, 0, 80)
+        success3, db3_bytes, err3 = plc.read_db(3, 0, 80)
+
+        if not success1 and not success3:
             return {
                 "success": False,
-                "error": f"读取DB3失败: {err}",
+                "error": f"读取DB1失败: {err1}; 读取DB3失败: {err3}",
                 "timestamp": datetime.utcnow().isoformat() + "Z"
             }
-        
-        status_data = parse_status_waterpump_db(db3_bytes, only_enabled=True)
-        
+
+        data = {}
+        summary_by_db = {}
+
+        if success1:
+            db1_data = parse_status_waterpump_master_db(db1_bytes, only_enabled=True)
+            data["db1"] = db1_data["devices"]
+            summary_by_db["db1"] = db1_data["summary"]
+
+        if success3:
+            db3_data = parse_status_waterpump_db(db3_bytes, only_enabled=True)
+            data["db3"] = db3_data["devices"]
+            summary_by_db["db3"] = db3_data["summary"]
+
         return {
             "success": True,
-            "data": {"db3": status_data["devices"]},
-            "summary": status_data["summary"],
+            "data": data,
+            "summary_by_db": summary_by_db,
             "source": "plc",
             "timestamp": datetime.utcnow().isoformat() + "Z"
         }

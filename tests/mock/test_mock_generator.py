@@ -33,8 +33,8 @@ def test_db1_status():
         print(f"  原始数据 (前24字节): {db1[:24].hex()}")
         
         # 解析各设备状态
-        device_offsets = [(0, "comm_module"), (4, "pump_meter_1"), (8, "pump_meter_2"),
-                         (12, "pump_meter_3"), (16, "pump_meter_4"), (20, "pump_meter_5")]
+        device_offsets = [(0, "master_load"), (4, "meter_1"), (8, "meter_2"),
+                 (12, "meter_3"), (16, "meter_4"), (20, "meter_5"), (24, "meter_6")]
         
         for offset, name in device_offsets:
             status_byte = db1[offset]
@@ -80,6 +80,10 @@ def test_db2_sensors():
         pressure_kpa = pressure_raw * 0.01
         print(f"  🔵 pressure: {pressure_kpa:.2f} kPa (raw={pressure_raw})")
 
+        # 振动传感器 (读取1号泵VX)
+        vib_vx_raw = struct.unpack(">H", db2[338 + 12:338 + 14])[0]
+        print(f"  🟣 vib_1_vx: {vib_vx_raw * 0.01:.2f} mm/s")
+
 
 def test_with_parsers():
     """使用实际解析器测试"""
@@ -89,7 +93,7 @@ def test_with_parsers():
     
     try:
         from app.plc.parser_waterpump import parse_waterpump_db
-        from app.plc.parser_status import parse_status_db
+        from app.plc.parser_status_waterpump import parse_status_waterpump_master_db
         from app.tools.converter_elec import ElectricityConverter
         from app.tools.converter_pressure import PressureConverter
         
@@ -107,21 +111,27 @@ def test_with_parsers():
             print(f"\n第 {i+1} 次解析:")
             
             # 解析状态
-            status_result = parse_status_db(db1)
+            status_result = parse_status_waterpump_master_db(db1)
             print(f"  📊 状态汇总: {status_result.get('summary', {})}")
             
             # 解析传感器
             sensor_result = parse_waterpump_db(db2)
             
             # 转换电表数据
-            for meter_id in [f"meter_{j}" for j in range(1, 4)]:
-                if meter_id in sensor_result and "error" not in sensor_result[meter_id]:
-                    converted = elec_conv.convert(sensor_result[meter_id])
+            for meter_id in [f"pump_meter_{j}" for j in range(1, 4)]:
+                device_data = sensor_result.get(meter_id, {})
+                module = device_data.get("modules", {}).get(f"elec_{meter_id.split('_')[-1]}", {})
+                raw_fields = module.get("fields", {})
+                if raw_fields:
+                    converted = elec_conv.convert(raw_fields)
                     print(f"  ⚡ {meter_id}: Pt={converted['Pt']}kW, E={converted['ImpEp']}kWh")
             
             # 转换压力数据
-            if "pressure" in sensor_result and "error" not in sensor_result["pressure"]:
-                pres_converted = pres_conv.convert(sensor_result["pressure"])
+            pressure_dev = sensor_result.get("pump_pressure", {})
+            pressure_module = pressure_dev.get("modules", {}).get("pressure_main", {})
+            pressure_raw = pressure_module.get("fields", {})
+            if pressure_raw:
+                pres_converted = pres_conv.convert(pressure_raw)
                 print(f"  💧 pressure: {pres_converted['pressure_kpa']} kPa")
         
         print("\n✅ 解析器测试通过!")
