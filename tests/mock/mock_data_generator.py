@@ -30,7 +30,7 @@ class MockDataGenerator:
             'pump_energy': [1250.0, 1580.0, 980.0, 2100.0, 1420.0, 1180.0],
             
             # 压力传感器基础值
-            'pressure': 2.5,  # MPa
+            'pressure': 0.45,  # MPa (出水压力，典型值 0.3-0.6 MPa)
             # 振动传感器基础值 (mm/s)
             'vibration': [0.6, 0.7, 0.5, 0.8, 0.65, 0.55],
         }
@@ -41,17 +41,29 @@ class MockDataGenerator:
         # 能耗累计值
         self._energy_accumulator = [0.0] * 6
         
-        # 设备运行状态 (模拟开关)
+        # 设备运行状态 (模拟开关) - 默认前4台运行
         self._device_running = [True, True, True, True, False, False]
+        
+        # 动态基础值偏移 (模拟负载变化)
+        self._load_factor = [1.0] * 6
     
     def tick(self):
         """时间前进一步 (每次轮询调用)"""
         self._tick += 1
         
-        # 每100次轮询，随机切换一个设备状态
-        if self._tick % 100 == 0:
+        # 每20次轮询，随机调整负载因子 (模拟负载波动)
+        if self._tick % 20 == 0:
+            for i in range(6):
+                if self._device_running[i]:
+                    # 负载在 0.7 ~ 1.3 之间波动
+                    self._load_factor[i] = random.uniform(0.7, 1.3)
+        
+        # 每200次轮询，随机切换一个设备状态 (约16分钟)
+        if self._tick % 200 == 0:
             idx = random.randint(0, 5)
             self._device_running[idx] = not self._device_running[idx]
+            if self._device_running[idx]:
+                self._load_factor[idx] = random.uniform(0.8, 1.2)
     
     def _add_noise(self, base: float, noise_range: float = 0.05) -> float:
         """添加随机波动"""
@@ -59,9 +71,17 @@ class MockDataGenerator:
         return base * (1 + noise)
     
     def _add_sine_wave(self, base: float, amplitude: float = 0.1, period: int = 60) -> float:
-        """添加正弦波动 (模拟周期性变化)"""
+        """添加正弦波动 (模拟周期性变化)
+        
+        Args:
+            base: 基础值
+            amplitude: 振幅比例 (0.1 = ±10%)
+            period: 周期 (tick数，5秒/tick 则 period=12 约为1分钟)
+        """
         wave = math.sin(2 * math.pi * self._tick / period) * amplitude
-        return base * (1 + wave)
+        # 叠加一个更快的小波动，让数据看起来更自然
+        fast_wave = math.sin(2 * math.pi * self._tick / (period / 3)) * (amplitude * 0.3)
+        return base * (1 + wave + fast_wave)
     
     # ============================================================
     # DB1: 设备状态数据 (80 字节)
@@ -162,35 +182,40 @@ class MockDataGenerator:
             if self._device_running[idx]:
                 # 设备运行中，生成真实数据
                 base_v = self._base_values['pump_voltage'][idx]
-                base_i = self._base_values['pump_current'][idx]
-                base_p = self._base_values['pump_power'][idx]
+                base_i = self._base_values['pump_current'][idx] * self._load_factor[idx]
+                base_p = self._base_values['pump_power'][idx] * self._load_factor[idx]
                 base_e = self._base_values['pump_energy'][idx]
                 
-                # 添加波动
-                line_voltage = self._add_sine_wave(base_v, amplitude=0.02, period=120)
+                # 添加波动 (增大幅度使变化更明显)
+                # 电压波动 ±3% (周期约40秒)
+                line_voltage = self._add_sine_wave(base_v, amplitude=0.03, period=8)
                 phase_voltage = line_voltage / 1.732
-                current = self._add_sine_wave(base_i, amplitude=0.15, period=30)
-                power = self._add_sine_wave(base_p, amplitude=0.1, period=45)
                 
-                # 累计能耗
-                self._energy_accumulator[idx] += power * (5 / 3600)  # 5秒轮询
+                # 电流波动 ±20% (周期约25秒)
+                current = self._add_sine_wave(base_i, amplitude=0.20, period=5)
+                
+                # 功率波动 ±15% (周期约30秒)
+                power = self._add_sine_wave(base_p, amplitude=0.15, period=6)
+                
+                # 累计能耗 (每5秒增加)
+                self._energy_accumulator[idx] += abs(power) * (5 / 3600)
                 energy = base_e + self._energy_accumulator[idx]
                 
                 # 打包电表数据 (14 个 REAL, 大端)
                 values = [
-                    line_voltage + random.uniform(-2, 2),      # Uab
-                    line_voltage + random.uniform(-2, 2),      # Ubc
-                    line_voltage + random.uniform(-2, 2),      # Uca
-                    phase_voltage + random.uniform(-1, 1),     # Ua
-                    phase_voltage + random.uniform(-1, 1),     # Ub
-                    phase_voltage + random.uniform(-1, 1),     # Uc
-                    current + random.uniform(-0.5, 0.5),       # Ia
-                    current + random.uniform(-0.5, 0.5),       # Ib
-                    current + random.uniform(-0.5, 0.5),       # Ic
+                    line_voltage + random.uniform(-3, 3),      # Uab
+                    line_voltage + random.uniform(-3, 3),      # Ubc
+                    line_voltage + random.uniform(-3, 3),      # Uca
+                    phase_voltage + random.uniform(-2, 2),     # Ua
+                    phase_voltage + random.uniform(-2, 2),     # Ub
+                    phase_voltage + random.uniform(-2, 2),     # Uc
+                    current + random.uniform(-1, 1),           # Ia
+                    current + random.uniform(-1, 1),           # Ib
+                    current + random.uniform(-1, 1),           # Ic
                     power,                                      # Pt
-                    power / 3 + random.uniform(-0.1, 0.1),     # Pa
-                    power / 3 + random.uniform(-0.1, 0.1),     # Pb
-                    power / 3 + random.uniform(-0.1, 0.1),     # Pc
+                    power / 3 + random.uniform(-0.2, 0.2),     # Pa
+                    power / 3 + random.uniform(-0.2, 0.2),     # Pb
+                    power / 3 + random.uniform(-0.2, 0.2),     # Pc
                     energy,                                     # ImpEp
                 ]
             else:
@@ -201,23 +226,31 @@ class MockDataGenerator:
                 data[offset + i*4 : offset + i*4 + 4] = struct.pack(">f", val)
         
         # 压力传感器 (偏移 336, 2字节)
+        # 压力波动 ±15% (周期约50秒)，模拟用水量变化
         pressure = self._add_sine_wave(
             self._base_values['pressure'],
-            amplitude=0.08,
-            period=60
+            amplitude=0.15,
+            period=10
         )
-        # 假设压力传感器原始值范围 0-10000 对应 0-10 MPa
+        # 添加随机扰动
+        pressure += random.uniform(-0.02, 0.02)
+        # 压力传感器原始值范围 0-10000 对应 0-10 MPa (即 0.001 MPa/单位)
         pressure_raw = int(pressure * 1000)
         data[336:338] = struct.pack(">H", min(65535, max(0, pressure_raw)))
 
-        # 振动传感器 (6个, 起始偏移 338, 模块大小 84字节，PLC实际偏移: 338/422/506/590/674/758)
+        # 振动传感器 (6个, 起始偏移 338, 模块大小 84字节)
         vib_base_offsets = [338, 422, 506, 590, 674, 758]
         for idx, base in enumerate(vib_base_offsets):
-            base_v = self._base_values['vibration'][idx]
-            vib_vx = self._add_sine_wave(base_v, amplitude=0.2, period=30)
-            vib_vy = self._add_sine_wave(base_v * 0.9, amplitude=0.2, period=35)
-            vib_vz = self._add_sine_wave(base_v * 1.1, amplitude=0.2, period=40)
-            freq = 50.0 + random.uniform(-3, 3)
+            if not self._device_running[idx]:
+                # 设备未运行，振动为0
+                continue
+                
+            base_v = self._base_values['vibration'][idx] * self._load_factor[idx]
+            # 振动波动 ±25% (周期约15-20秒)
+            vib_vx = self._add_sine_wave(base_v, amplitude=0.25, period=3 + idx)
+            vib_vy = self._add_sine_wave(base_v * 0.9, amplitude=0.25, period=4 + idx)
+            vib_vz = self._add_sine_wave(base_v * 1.1, amplitude=0.25, period=5 + idx)
+            freq = 50.0 + random.uniform(-5, 5)
 
             def _write_word(offset: int, value: float, scale: float):
                 raw = int(max(0, min(65535, value / scale)))

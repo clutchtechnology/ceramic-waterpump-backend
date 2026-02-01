@@ -3,10 +3,11 @@ import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.routers import api_router
+from app.routers import api_router, ws_router
 from app.routers.health import health  # 用于根路径健康检查
 from app.services.polling_service import start_polling, stop_polling
 from app.services.resource_monitor import start_monitoring, stop_monitoring
+from app.services.ws_manager import get_ws_manager
 from config import get_settings
 
 # 1. 配置日志格式 (工控环境需要时间戳便于排查)
@@ -26,7 +27,12 @@ async def lifespan(app: FastAPI):
     if settings.enable_polling:
         await start_polling()
     await start_monitoring()
+    # 启动 WebSocket 推送任务
+    ws_manager = get_ws_manager()
+    await ws_manager.start_push_tasks()
     yield
+    # 停止 WebSocket 推送任务
+    await ws_manager.stop_push_tasks()
     if settings.enable_polling:
         await stop_polling()
     await stop_monitoring()
@@ -58,7 +64,9 @@ def create_app() -> FastAPI:
     #   /api/config/*         - 配置管理
     #   /api/alarms/*         - 报警管理
     #   /api/status/devices   - 设备状态
+    #   /ws/realtime          - WebSocket 实时数据推送
     app.include_router(api_router, prefix="/api")
+    app.include_router(ws_router, prefix="/ws")
     
     return app
 
@@ -67,7 +75,8 @@ app = create_app()
 
 
 if __name__ == "__main__":
-    import uvicorn
+    # Launch desktop tray + log viewer when running as a script
+    from scripts.tray_app import run_tray_app
 
-    uvicorn.run("main:app", host=settings.server_host, port=settings.server_port, reload=False)
+    run_tray_app()
 

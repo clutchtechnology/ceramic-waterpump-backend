@@ -19,6 +19,6 @@
     app.include_router(api_router, prefix="/api")
 """
 
-from .api import api_router
+from .api import api_router, ws_router
 
-__all__ = ["api_router"]
+__all__ = ["api_router", "ws_router"]

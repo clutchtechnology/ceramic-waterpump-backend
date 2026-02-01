@@ -27,10 +27,10 @@ class Settings(BaseSettings):
     batch_size: int = 12
 
     # InfluxDB
-    influx_url: str = ""
-    influx_token: str = ""
-    influx_org: str = ""
-    influx_bucket: str = ""
+    influx_url: str = "http://localhost:8086"
+    influx_token: str = "SkBJopsvaCCLjXqNAjpYmMl6F-LfKBv0H1hukyt2duk2DwWr5wD0PI0B6Y2TeTphbik9iP-wr34RdW7A1CSt0A=="
+    influx_org: str = "clutchtech"
+    influx_bucket: str = "waterpump"
 
     class Config:
         env_file = ".env"

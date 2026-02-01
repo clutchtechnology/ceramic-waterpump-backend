@@ -17,10 +17,14 @@ from .history import router as history_router
 from .config import router as config_router
 from .alarms import router as alarms_router
 from .devices import router as devices_router
+from .websocket import router as websocket_router
 
 
 # 创建主路由
 api_router = APIRouter()
+
+# 创建 WebSocket 路由 (独立前缀 /ws)
+ws_router = APIRouter()
 
 # 注册所有子路由
 api_router.include_router(health_router)
@@ -29,6 +33,9 @@ api_router.include_router(history_router)
 api_router.include_router(config_router)
 api_router.include_router(alarms_router)
 api_router.include_router(devices_router)
+
+# WebSocket 路由单独导出
+ws_router.include_router(websocket_router)
 
 
 # ============================================================
