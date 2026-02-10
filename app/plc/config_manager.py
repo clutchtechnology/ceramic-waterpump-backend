@@ -6,12 +6,14 @@ import yaml
 from pathlib import Path
 from typing import Dict, Any, List
 
+from config import get_resource_path
+
 
 class PLCConfigManager:
-    """读取 configs/config_waterpump.yaml 并提供设备配置"""
+    """读取设备配置文件并提供设备配置"""
 
-    def __init__(self, config_path: str = "configs/config_waterpump.yaml"):
-        self.config_path = Path(config_path)
+    def __init__(self, config_path: str = "configs/config_waterpump_db2.yaml"):
+        self.config_path = get_resource_path(config_path)
         self._devices: List[Dict[str, Any]] = []
         self.load()
 

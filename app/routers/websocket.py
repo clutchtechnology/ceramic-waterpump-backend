@@ -66,6 +66,7 @@ async def websocket_endpoint(websocket: WebSocket):
             # 处理订阅
             if msg_type == "subscribe":
                 channel = data.get("channel")
+                logger.info(f"[WS] 收到订阅请求: {channel}")
                 if not manager.subscribe(websocket, channel):
                     await manager.send_personal(websocket, {
                         "type": "error",
@@ -101,7 +102,7 @@ async def websocket_endpoint(websocket: WebSocket):
         manager.disconnect(websocket)
 
 
-@router.get("/ws/status")
+@router.get("/status")
 async def ws_status():
     """
     获取 WebSocket 连接状态

@@ -109,9 +109,15 @@ class ServerController:
         if influx_msg is not None:
             return influx_msg
 
-        # 检查端口是否被占用
+        # 检查端口是否被占用，如果被占用则尝试杀死占用进程
         if self._is_port_in_use(int(PORT)):
-            return f"端口 {PORT} 已被占用，无法启动服务"
+            kill_msg = self._kill_process_using_port(int(PORT))
+            if kill_msg:
+                return kill_msg
+            # 等待端口释放
+            time.sleep(1)
+            if self._is_port_in_use(int(PORT)):
+                return f"端口 {PORT} 仍被占用，无法启动服务"
 
         if IS_FROZEN:
             return self._start_in_thread()
@@ -135,6 +141,72 @@ class ServerController:
             return f"停止服务失败: {exc}"
         finally:
             self._release_resources()
+
+    def stop_all_processes(self) -> str:
+        """停止所有相关进程（包括子进程和占用端口的进程）。"""
+        try:
+            killed_pids = []
+            
+            # 1. 停止当前服务进程及其子进程
+            if self.is_running:
+                try:
+                    current_pid = self.pid
+                    proc = psutil.Process(current_pid)
+                    # 杀死所有子进程
+                    children = proc.children(recursive=True)
+                    for child in children:
+                        try:
+                            child.kill()
+                            killed_pids.append(f"{child.pid}({child.name()})")
+                        except Exception:
+                            pass
+                    # 杀死主进程
+                    if IS_FROZEN:
+                        self._stop_uvicorn_server()
+                    else:
+                        proc.kill()
+                        killed_pids.append(f"{current_pid}({proc.name()})")
+                except Exception as exc:
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    logger.warning(f"停止当前进程失败: {exc}")
+            
+            # 2. 杀死占用 8081 端口的所有进程
+            for conn in psutil.net_connections(kind="inet"):
+                if conn.laddr.port == int(PORT) and conn.status == "LISTEN":
+                    try:
+                        proc = psutil.Process(conn.pid)
+                        proc_name = proc.name()
+                        # 杀死子进程
+                        children = proc.children(recursive=True)
+                        for child in children:
+                            try:
+                                child.kill()
+                                killed_pids.append(f"{child.pid}({child.name()})")
+                            except Exception:
+                                pass
+                        # 杀死主进程
+                        proc.kill()
+                        killed_pids.append(f"{conn.pid}({proc_name})")
+                    except psutil.NoSuchProcess:
+                        pass
+                    except Exception:
+                        pass
+            
+            # 3. 停止 InfluxDB
+            self._stop_influxd_if_needed()
+            
+            # 4. 释放资源
+            self._release_resources()
+            
+            if killed_pids:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.info(f"已杀死进程: {', '.join(killed_pids)}")
+                return f"已停止所有进程: {', '.join(killed_pids)}"
+            return "所有进程已停止"
+        except Exception as exc:
+            return f"停止进程失败: {exc}"
 
     def status_text(self) -> str:
         """获取服务状态的可读文本。"""
@@ -164,6 +236,40 @@ class ServerController:
             if conn.laddr.port == port and conn.status == "LISTEN":
                 return True
         return False
+
+    @staticmethod
+    def _kill_process_using_port(port: int) -> Optional[str]:
+        """杀死占用指定端口的进程。"""
+        try:
+            killed_pids = []
+            for conn in psutil.net_connections(kind="inet"):
+                if conn.laddr.port == port and conn.status == "LISTEN":
+                    try:
+                        proc = psutil.Process(conn.pid)
+                        proc_name = proc.name()
+                        # 杀死进程及其所有子进程
+                        children = proc.children(recursive=True)
+                        for child in children:
+                            try:
+                                child.kill()
+                            except Exception:
+                                pass
+                        proc.kill()
+                        killed_pids.append(f"{conn.pid}({proc_name})")
+                    except psutil.NoSuchProcess:
+                        pass
+                    except psutil.AccessDenied:
+                        return f"无权限杀死占用端口 {port} 的进程 (PID {conn.pid})，请以管理员身份运行"
+                    except Exception as exc:
+                        return f"杀死进程失败: {exc}"
+            
+            if killed_pids:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.info(f"已杀死占用端口 {port} 的进程: {', '.join(killed_pids)}")
+            return None
+        except Exception as exc:
+            return f"检查端口占用失败: {exc}"
 
     @staticmethod
     def _parse_influx_port(url: str) -> int:
@@ -403,16 +509,38 @@ class ServerController:
             return f"启动失败: {exc}"
 
     def _terminate_process(self) -> None:
-        """终止服务进程（先优雅终止，超时后强制终止）。"""
+        """终止服务进程（先优雅终止，超时后强制终止，包括所有子进程）。"""
         if self._proc is None:
             return
 
-        self._proc.terminate()
         try:
-            self._proc.wait(timeout=STOP_TIMEOUT)
-        except subprocess.TimeoutExpired:
-            self._proc.kill()
-            self._proc.wait(timeout=5)
+            # 获取主进程
+            main_proc = psutil.Process(self._proc.pid)
+            
+            # 获取所有子进程
+            children = main_proc.children(recursive=True)
+            
+            # 先尝试优雅终止主进程
+            self._proc.terminate()
+            try:
+                self._proc.wait(timeout=STOP_TIMEOUT)
+            except subprocess.TimeoutExpired:
+                # 超时后强制杀死所有子进程
+                for child in children:
+                    try:
+                        child.kill()
+                    except Exception:
+                        pass
+                # 强制杀死主进程
+                self._proc.kill()
+                self._proc.wait(timeout=5)
+        except psutil.NoSuchProcess:
+            # 进程已经不存在
+            pass
+        except Exception as exc:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"终止进程时出错: {exc}")
 
 
 class LogWindow(QMainWindow):
@@ -434,12 +562,18 @@ class LogWindow(QMainWindow):
 
         self.start_btn = QPushButton("启动服务", self)
         self.stop_btn = QPushButton("停止服务", self)
+        self.force_stop_btn = QPushButton("强制停止", self)
+        self.clear_log_btn = QPushButton("删除日志", self)
         self.start_btn.clicked.connect(self.handle_start)
         self.stop_btn.clicked.connect(self.handle_stop)
+        self.force_stop_btn.clicked.connect(self.handle_force_stop)
+        self.clear_log_btn.clicked.connect(self.handle_clear_log)
 
         toolbar = QToolBar()
         toolbar.addWidget(self.start_btn)
         toolbar.addWidget(self.stop_btn)
+        toolbar.addWidget(self.force_stop_btn)
+        toolbar.addWidget(self.clear_log_btn)
         self.addToolBar(toolbar)
 
         central = QWidget(self)
@@ -513,6 +647,48 @@ class LogWindow(QMainWindow):
     def handle_stop(self) -> None:
         msg = self.controller.stop()
         self.update_status(msg)
+
+    def handle_force_stop(self) -> None:
+        """强制停止所有相关进程"""
+        reply = QMessageBox.question(
+            self,
+            "确认强制停止",
+            "这将强制杀死所有相关进程（包括子进程和占用端口的进程），是否继续？",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if reply != QMessageBox.Yes:
+            return
+        msg = self.controller.stop_all_processes()
+        self.update_status(msg)
+
+    def handle_clear_log(self) -> None:
+        """删除日志文件"""
+        reply = QMessageBox.question(
+            self,
+            "确认删除",
+            "确定要删除所有日志吗？此操作不可恢复。",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if reply != QMessageBox.Yes:
+            return
+        
+        try:
+            # 清空编辑器
+            self.editor.clear()
+            
+            # 删除日志文件
+            if self.log_path.exists():
+                self.log_path.unlink()
+                self.log_path.touch()
+            
+            # 重置偏移量
+            self.offset = 0
+            
+            self.update_status("日志已删除")
+        except Exception as exc:
+            QMessageBox.critical(self, "错误", f"删除日志失败: {exc}")
 
     def update_status(self, extra: Optional[str] = None) -> None:
         status = self.controller.status_text()
@@ -599,18 +775,21 @@ class TrayApp(QSystemTrayIcon):
         action_status = QAction("服务状态", self)
         self._action_start = QAction("启动服务", self)
         self._action_stop = QAction("停止服务", self)
+        action_force_stop = QAction("强制停止所有进程", self)
         action_log = QAction("打开日志", self)
         action_quit = QAction("退出程序", self)
 
         action_status.triggered.connect(self.on_status)
         self._action_start.triggered.connect(self.on_start)
         self._action_stop.triggered.connect(self.on_stop)
+        action_force_stop.triggered.connect(self.on_force_stop)
         action_log.triggered.connect(self.on_log)
         action_quit.triggered.connect(self.on_quit)
 
         menu.addAction(action_status)
         menu.addAction(self._action_start)
         menu.addAction(self._action_stop)
+        menu.addAction(action_force_stop)
         menu.addAction(action_log)
         menu.addSeparator()
         menu.addAction(action_quit)
@@ -637,6 +816,22 @@ class TrayApp(QSystemTrayIcon):
         self._update_icon()
         self._update_menu_state()
 
+    def on_force_stop(self) -> None:
+        """强制停止所有相关进程。"""
+        reply = QMessageBox.question(
+            None,
+            "确认强制停止",
+            "这将强制杀死所有相关进程（包括子进程和占用端口的进程），是否继续？",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if reply != QMessageBox.Yes:
+            return
+        msg = self.controller.stop_all_processes()
+        self.notify_text(msg)
+        self._update_icon()
+        self._update_menu_state()
+
     def on_log(self) -> None:
         """打开或显示日志窗口。"""
         if self.log_window is None or not self.log_window.isVisible():
@@ -646,11 +841,11 @@ class TrayApp(QSystemTrayIcon):
         self.log_window.activateWindow()
 
     def on_quit(self) -> None:
-        """退出程序（会停止服务）。"""
+        """退出程序（会停止所有相关进程）。"""
         reply = QMessageBox.question(
             None,
             "确认退出",
-            "退出程序将停止后台服务，是否继续？",
+            "退出程序将停止所有后台服务和相关进程，是否继续？",
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No,
         )
@@ -658,7 +853,11 @@ class TrayApp(QSystemTrayIcon):
             return
         if self.log_window:
             self.log_window.close()
-        self.controller.stop()
+        # 使用 stop_all_processes 确保杀死所有相关进程
+        msg = self.controller.stop_all_processes()
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"退出程序: {msg}")
         QApplication.instance().quit()
 
 
@@ -738,6 +937,12 @@ def run_tray_app() -> None:
 
     tray.show()
 
+    # 自动启动服务
+    start_msg = controller.start()
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.info(f"自动启动服务: {start_msg}")
+    
     # 自动打开日志窗口
     tray.on_log()
 

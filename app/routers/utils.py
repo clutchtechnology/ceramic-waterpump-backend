@@ -8,7 +8,6 @@ from datetime import datetime
 from typing import Dict, Any
 
 from app.core.threshold_store import check_alarm, check_pressure_alarm, get_pump_threshold, get_pressure_threshold
-from app.core.alarm_store import log_alarm
 
 logger = logging.getLogger(__name__)
 
@@ -40,91 +39,10 @@ def parse_interval(interval: str) -> int:
 
 def check_mock_alarms(data: Dict[str, Any]):
     """
-    Mock模式下检测报警并记录
-    在每次返回实时数据时调用
+    Mock模式下检测报警并记录（已禁用）
+    报警功能已移除
     """
-    # 检测6个水泵
-    pumps = data.get('pumps', [])
-    for pump in pumps:
-        pump_id = pump.get('id', 0)
-        device_id = f"pump_{pump_id}"
-        
-        # 检查电流
-        current = pump.get('current', 0)
-        current_alarm = check_alarm(pump_id, 'current', current)
-        if current_alarm:
-            threshold = get_pump_threshold(pump_id, 'current')
-            threshold_val = threshold['warning_max'] if current_alarm == 'alarm' else threshold['normal_max']
-            log_alarm(
-                device_id=device_id,
-                alarm_type='current_high',
-                param_name='current',
-                value=current,
-                threshold=threshold_val,
-                level=current_alarm,
-            )
-        
-        # 检查功率
-        power = pump.get('power', 0)
-        power_alarm = check_alarm(pump_id, 'power', power)
-        if power_alarm:
-            threshold = get_pump_threshold(pump_id, 'power')
-            threshold_val = threshold['warning_max'] if power_alarm == 'alarm' else threshold['normal_max']
-            log_alarm(
-                device_id=device_id,
-                alarm_type='power_high',
-                param_name='power',
-                value=power,
-                threshold=threshold_val,
-                level=power_alarm,
-            )
-
-        # 检查振动
-        vibration = pump.get('vibration', {})
-        if isinstance(vibration, dict):
-            vib_value = max(
-                vibration.get('VX', 0.0),
-                vibration.get('VY', 0.0),
-                vibration.get('VZ', 0.0)
-            )
-            vib_alarm = check_alarm(pump_id, 'vibration', vib_value)
-            if vib_alarm:
-                threshold = get_pump_threshold(pump_id, 'vibration')
-                threshold_val = threshold['warning_max'] if vib_alarm == 'alarm' else threshold['normal_max']
-                log_alarm(
-                    device_id=device_id,
-                    alarm_type='vibration_high',
-                    param_name='vibration',
-                    value=vib_value,
-                    threshold=threshold_val,
-                    level=vib_alarm,
-                )
-    
-    # 检测压力
-    pressure_data = data.get('pressure', {})
-    pressure = pressure_data.get('value', 0)
-    pressure_alarm = check_pressure_alarm(pressure)
-    
-    if pressure_alarm:
-        threshold = get_pressure_threshold()
-        if pressure_alarm == 'alarm_high':
-            log_alarm(
-                device_id='pressure',
-                alarm_type='pressure_high',
-                param_name='pressure',
-                value=pressure,
-                threshold=threshold['high_alarm'],
-                level='alarm',
-            )
-        elif pressure_alarm == 'alarm_low':
-            log_alarm(
-                device_id='pressure',
-                alarm_type='pressure_low',
-                param_name='pressure',
-                value=pressure,
-                threshold=threshold['low_alarm'],
-                level='alarm',
-            )
+    pass
 
 
 def generate_mock_status() -> Dict[str, Any]:

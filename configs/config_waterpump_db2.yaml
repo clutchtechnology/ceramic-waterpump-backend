@@ -86,7 +86,7 @@ devices:
     modules:
       - module_type: "VibrationSensor"
         module_tag: "vibration_2"
-        start_offset: 422
+        start_offset: 454
         description: "VIB_2 (核心指标)"
 
   - device_id: "pump_vibration_3"
@@ -96,7 +96,7 @@ devices:
     modules:
       - module_type: "VibrationSensor"
         module_tag: "vibration_3"
-        start_offset: 506
+        start_offset: 570
         description: "VIB_3 (核心指标)"
 
   - device_id: "pump_vibration_4"
@@ -106,7 +106,7 @@ devices:
     modules:
       - module_type: "VibrationSensor"
         module_tag: "vibration_4"
-        start_offset: 590
+        start_offset: 686
         description: "VIB_4 (核心指标)"
 
   - device_id: "pump_vibration_5"
@@ -116,7 +116,7 @@ devices:
     modules:
       - module_type: "VibrationSensor"
         module_tag: "vibration_5"
-        start_offset: 674
+        start_offset: 802
         description: "VIB_5 (核心指标)"
 
   - device_id: "pump_vibration_6"
@@ -126,5 +126,5 @@ devices:
     modules:
       - module_type: "VibrationSensor"
         module_tag: "vibration_6"
-        start_offset: 758
+        start_offset: 918
         description: "VIB_6 (核心指标)"

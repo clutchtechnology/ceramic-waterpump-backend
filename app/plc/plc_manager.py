@@ -20,14 +20,39 @@ from config import get_settings
 logger = logging.getLogger(__name__)
 settings = get_settings()
 
-# 尝试导入 snap7
+# 尝试导入 snap7 (兼容 1.x 和 2.x)
 try:
     import snap7
     from snap7.util import get_real, get_int
+    
+    # 尝试获取 PingTimeout 参数值
+    _PingTimeout = 3  # 默认值
+    
+    try:
+        # snap7 2.x: snap7.type.Parameter.PingTimeout
+        if hasattr(snap7, 'type'):
+            import snap7.type
+            if hasattr(snap7.type, 'Parameter'):
+                _PingTimeout = snap7.type.Parameter.PingTimeout
+    except (ImportError, AttributeError):
+        pass
+    
+    try:
+        # snap7 1.x: snap7.types.PingTimeout
+        if hasattr(snap7, 'types'):
+            import snap7.types
+            if hasattr(snap7.types, 'PingTimeout'):
+                _PingTimeout = snap7.types.PingTimeout
+    except (ImportError, AttributeError):
+        pass
+    
     SNAP7_AVAILABLE = True
-except ImportError:
+    logger.info(f"snap7 已加载，PingTimeout 参数值: {_PingTimeout}")
+    
+except ImportError as e:
     SNAP7_AVAILABLE = False
-    logger.warning("snap7 未安装，使用模拟模式")
+    _PingTimeout = 3
+    logger.warning(f"snap7 未安装，使用模拟模式: {e}")
 
 
 class PLCManager:
@@ -112,7 +137,7 @@ class PLCManager:
                 self._client = snap7.client.Client()
             
             # 设置超时
-            self._client.set_param(snap7.types.PingTimeout, self._timeout_ms)
+            self._client.set_param(_PingTimeout, self._timeout_ms)
             
             # 连接
             self._client.connect(self._ip, self._rack, self._slot)
@@ -147,14 +172,16 @@ class PLCManager:
             try:
                 if SNAP7_AVAILABLE and self._client.get_connected():
                     self._client.disconnect()
-            except Exception:
-                pass
+                    # 等待 TCP 连接完全关闭
+                    time.sleep(0.5)
+            except Exception as e:
+                logger.warning(f"断开连接时出错: {e}")
         self._connected = False
         logger.info("PLC 已断开")
     
     def read_db(self, db_number: int, start: int, size: int) -> Tuple[bool, bytes, str]:
         """
-        读取 DB 块数据（带自动重连）
+        读取 DB 块数据（长连接模式，不轻易断开）
         
         Args:
             db_number: DB 块号
@@ -176,30 +203,40 @@ class PLCManager:
                 self._last_read_time = datetime.now(timezone.utc)
                 return (True, bytes(size), "模拟数据")
             
-            # 读取数据
-            for attempt in range(self._max_reconnect_attempts):
-                try:
-                    data = self._client.db_read(db_number, start, size)
-                    self._last_read_time = datetime.now(timezone.utc)
-                    self._error_count = 0
-                    return (True, bytes(data), "")
-                
-                except Exception as e:
-                    self._error_count += 1
-                    self._last_error = str(e)
-                    
-                    # 尝试重连
-                    if attempt < self._max_reconnect_attempts - 1:
-                        logger.warning(f"DB{db_number} 读取失败 (尝试 {attempt+1}/{self._max_reconnect_attempts}): {e}")
-                        self._disconnect_internal()
-                        time.sleep(0.5)
-                        success, _ = self._connect_internal()
-                        if not success:
-                            continue
-                    else:
-                        logger.error(f"DB{db_number} 读取失败 (已重试 {self._max_reconnect_attempts} 次): {e}")
+            # 尝试读取数据（保持长连接，不断开）
+            try:
+                data = self._client.db_read(db_number, start, size)
+                self._last_read_time = datetime.now(timezone.utc)
+                self._error_count = 0
+                return (True, bytes(data), "")
             
-            return (False, b"", self._last_error)
+            except Exception as e:
+                self._error_count += 1
+                self._last_error = str(e)
+                logger.warning(f"DB{db_number} 读取失败: {e}")
+                
+                # 只有在连续失败多次后才考虑重连
+                if self._error_count >= 5:
+                    logger.error(f"DB{db_number} 连续失败 {self._error_count} 次，尝试重连")
+                    self._disconnect_internal()
+                    time.sleep(2.0)  # 等待 PLC 释放连接
+                    success, _ = self._connect_internal()
+                    if not success:
+                        logger.error(f"DB{db_number} 重连失败")
+                        return (False, b"", self._last_error)
+                    
+                    # 重连后再试一次
+                    try:
+                        data = self._client.db_read(db_number, start, size)
+                        self._last_read_time = datetime.now(timezone.utc)
+                        self._error_count = 0
+                        return (True, bytes(data), "")
+                    except Exception as e2:
+                        logger.error(f"DB{db_number} 重连后仍然失败: {e2}")
+                        return (False, b"", str(e2))
+                
+                # 失败次数不多，直接返回错误，不断开连接
+                return (False, b"", self._last_error)
     
     def is_connected(self) -> bool:
         """检查连接状态"""

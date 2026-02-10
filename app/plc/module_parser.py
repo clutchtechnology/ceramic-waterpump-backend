@@ -7,12 +7,14 @@ import yaml
 from typing import Dict, Any
 from pathlib import Path
 
+from config import get_resource_path
+
 
 class ModuleParser:
     """模块化数据解析器 (基于 configs/plc_modules.yaml)"""
 
     def __init__(self, config_path: str = "configs/plc_modules.yaml"):
-        self.config_path = Path(config_path)
+        self.config_path = get_resource_path(config_path)
         self.modules: Dict[str, Dict[str, Any]] = {}
         self.load_module_configs()
 

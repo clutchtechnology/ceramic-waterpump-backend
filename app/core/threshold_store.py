@@ -88,10 +88,10 @@ def load_thresholds() -> Dict[str, Any]:
                 _cache_mtime = current_mtime
                 return _cache.copy()
         except json.JSONDecodeError as e:
-            print(f"⚠️ 阈值配置文件JSON解析错误: {e}")
+            print(f"[WARN] 阈值配置文件JSON解析错误: {e}")
             return _DEFAULT_THRESHOLDS.copy()
         except IOError as e:
-            print(f"⚠️ 阈值配置文件读取失败: {e}")
+            print(f"[WARN] 阈值配置文件读取失败: {e}")
             return _DEFAULT_THRESHOLDS.copy()
 
 

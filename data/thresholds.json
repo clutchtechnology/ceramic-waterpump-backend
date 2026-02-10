@@ -1,86 +1,138 @@
 {
-  "version": 1,
-  "updated_at": "2025-12-30T06:49:54.825137",
+  "version": 2,
+  "updated_at": "2026-02-08T15:39:00.000000",
   "current": {
     "pump_1": {
-      "normal_max": 5.0,
-      "warning_max": 10.0
+      "normal_max": 50.0,
+      "warning_max": 80.0
     },
     "pump_2": {
-      "normal_max": 5.0,
-      "warning_max": 8.0
+      "normal_max": 50.0,
+      "warning_max": 80.0
     },
     "pump_3": {
-      "normal_max": 5.0,
-      "warning_max": 8.0
+      "normal_max": 50.0,
+      "warning_max": 80.0
     },
     "pump_4": {
-      "normal_max": 5.0,
-      "warning_max": 8.0
+      "normal_max": 50.0,
+      "warning_max": 80.0
     },
     "pump_5": {
       "normal_max": 50.0,
-      "warning_max": 8.0
+      "warning_max": 80.0
     },
     "pump_6": {
-      "normal_max": 5.0,
-      "warning_max": 8.0
+      "normal_max": 50.0,
+      "warning_max": 80.0
     }
   },
-  "power": {
+  "voltage": {
     "pump_1": {
-      "normal_max": 3.0,
-      "warning_max": 5.0
+      "normal_max": 400.0,
+      "warning_max": 420.0
     },
     "pump_2": {
-      "normal_max": 30.0,
-      "warning_max": 1231.0
+      "normal_max": 400.0,
+      "warning_max": 420.0
     },
     "pump_3": {
-      "normal_max": 3.0,
-      "warning_max": 5.0
+      "normal_max": 400.0,
+      "warning_max": 420.0
     },
     "pump_4": {
-      "normal_max": 3.0,
-      "warning_max": 50.0
+      "normal_max": 400.0,
+      "warning_max": 420.0
     },
     "pump_5": {
-      "normal_max": 30.0,
-      "warning_max": 34.0
+      "normal_max": 400.0,
+      "warning_max": 420.0
     },
     "pump_6": {
-      "normal_max": 3.0,
-      "warning_max": 50.0
+      "normal_max": 400.0,
+      "warning_max": 420.0
     }
   },
   "pressure": {
-    "high_alarm": 211.0,
+    "high_alarm": 1.0,
     "low_alarm": 0.3
   },
-  "vibration": {
+  "speed": {
     "pump_1": {
-      "normal_max": 10.0,
-      "warning_max": 1.5
+      "normal_max": 1450.0,
+      "warning_max": 1500.0
     },
     "pump_2": {
-      "normal_max": 1.0,
-      "warning_max": 1.5
+      "normal_max": 1450.0,
+      "warning_max": 1500.0
     },
     "pump_3": {
-      "normal_max": 1.0,
-      "warning_max": 1.5
+      "normal_max": 1450.0,
+      "warning_max": 1500.0
     },
     "pump_4": {
-      "normal_max": 1.0,
-      "warning_max": 1.5
+      "normal_max": 1450.0,
+      "warning_max": 1500.0
     },
     "pump_5": {
-      "normal_max": 1.0,
-      "warning_max": 1.5
+      "normal_max": 1450.0,
+      "warning_max": 1500.0
     },
     "pump_6": {
-      "normal_max": 1.0,
-      "warning_max": 1.5
+      "normal_max": 1450.0,
+      "warning_max": 1500.0
+    }
+  },
+  "displacement": {
+    "pump_1": {
+      "normal_max": 0.5,
+      "warning_max": 1.0
+    },
+    "pump_2": {
+      "normal_max": 0.5,
+      "warning_max": 1.0
+    },
+    "pump_3": {
+      "normal_max": 0.5,
+      "warning_max": 1.0
+    },
+    "pump_4": {
+      "normal_max": 0.5,
+      "warning_max": 1.0
+    },
+    "pump_5": {
+      "normal_max": 0.5,
+      "warning_max": 1.0
+    },
+    "pump_6": {
+      "normal_max": 0.5,
+      "warning_max": 1.0
+    }
+  },
+  "frequency": {
+    "pump_1": {
+      "normal_max": 50.0,
+      "warning_max": 52.0
+    },
+    "pump_2": {
+      "normal_max": 50.0,
+      "warning_max": 52.0
+    },
+    "pump_3": {
+      "normal_max": 50.0,
+      "warning_max": 52.0
+    },
+    "pump_4": {
+      "normal_max": 50.0,
+      "warning_max": 52.0
+    },
+    "pump_5": {
+      "normal_max": 50.0,
+      "warning_max": 52.0
+    },
+    "pump_6": {
+      "normal_max": 50.0,
+      "warning_max": 52.0
     }
   }
 }

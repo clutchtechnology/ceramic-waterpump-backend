@@ -23,11 +23,11 @@ class MockDataGenerator:
     def __init__(self):
         # 基础值 (用于模拟真实波动)
         self._base_values = {
-            # 6个水泵电表基础值
-            'pump_voltage': [380.0, 380.0, 380.0, 380.0, 380.0, 380.0],
-            'pump_current': [15.0, 18.0, 12.0, 20.0, 16.0, 14.0],
-            'pump_power': [8.5, 10.2, 6.8, 12.0, 9.5, 8.0],
-            'pump_energy': [1250.0, 1580.0, 980.0, 2100.0, 1420.0, 1180.0],
+            # 6个水泵电表基础值（原始 PLC 值，需要经过转换器缩放）
+            'pump_voltage': [380.0, 380.0, 380.0, 380.0, 380.0, 380.0],  # 原始值，转换器会 × 0.1
+            'pump_current': [15.0, 18.0, 12.0, 20.0, 16.0, 14.0],  # 原始值，转换器会 × 0.001 × 20
+            'pump_power': [4250.0, 5100.0, 3400.0, 6000.0, 4750.0, 4000.0],  # 原始值，转换器会 × 0.0001 × 20 = 8.5-12.0 kW
+            'pump_energy': [1250.0, 1580.0, 980.0, 2100.0, 1420.0, 1180.0],  # 原始值，转换器会 × 20
             
             # 压力传感器基础值
             'pressure': 0.45,  # MPa (出水压力，典型值 0.3-0.6 MPa)
@@ -41,8 +41,8 @@ class MockDataGenerator:
         # 能耗累计值
         self._energy_accumulator = [0.0] * 6
         
-        # 设备运行状态 (模拟开关) - 默认前4台运行
-        self._device_running = [True, True, True, True, False, False]
+        # 设备运行状态 (模拟开关) - 默认全部运行
+        self._device_running = [True, True, True, True, True, True]
         
         # 动态基础值偏移 (模拟负载变化)
         self._load_factor = [1.0] * 6
@@ -58,12 +58,13 @@ class MockDataGenerator:
                     # 负载在 0.7 ~ 1.3 之间波动
                     self._load_factor[i] = random.uniform(0.7, 1.3)
         
+        # 禁用自动切换设备状态，避免数据突然变为 0
         # 每200次轮询，随机切换一个设备状态 (约16分钟)
-        if self._tick % 200 == 0:
-            idx = random.randint(0, 5)
-            self._device_running[idx] = not self._device_running[idx]
-            if self._device_running[idx]:
-                self._load_factor[idx] = random.uniform(0.8, 1.2)
+        # if self._tick % 200 == 0:
+        #     idx = random.randint(0, 5)
+        #     self._device_running[idx] = not self._device_running[idx]
+        #     if self._device_running[idx]:
+        #         self._load_factor[idx] = random.uniform(0.8, 1.2)
     
     def _add_noise(self, base: float, noise_range: float = 0.05) -> float:
         """添加随机波动"""
@@ -187,15 +188,15 @@ class MockDataGenerator:
                 base_e = self._base_values['pump_energy'][idx]
                 
                 # 添加波动 (增大幅度使变化更明显)
-                # 电压波动 ±3% (周期约40秒)
-                line_voltage = self._add_sine_wave(base_v, amplitude=0.03, period=8)
+                # 电压波动 ±5% (周期约10秒，更快更明显)
+                line_voltage = self._add_sine_wave(base_v, amplitude=0.05, period=2)
                 phase_voltage = line_voltage / 1.732
                 
-                # 电流波动 ±20% (周期约25秒)
-                current = self._add_sine_wave(base_i, amplitude=0.20, period=5)
+                # 电流波动 ±30% (周期约10秒，更快更明显)
+                current = self._add_sine_wave(base_i, amplitude=0.30, period=2)
                 
-                # 功率波动 ±15% (周期约30秒)
-                power = self._add_sine_wave(base_p, amplitude=0.15, period=6)
+                # 功率波动 ±25% (周期约10秒，更快更明显)
+                power = self._add_sine_wave(base_p, amplitude=0.25, period=2)
                 
                 # 累计能耗 (每5秒增加)
                 self._energy_accumulator[idx] += abs(power) * (5 / 3600)
@@ -226,87 +227,53 @@ class MockDataGenerator:
                 data[offset + i*4 : offset + i*4 + 4] = struct.pack(">f", val)
         
         # 压力传感器 (偏移 336, 2字节)
-        # 压力波动 ±15% (周期约50秒)，模拟用水量变化
+        # 压力波动 ±25% (周期约10秒)，模拟用水量变化，更快更明显
         pressure = self._add_sine_wave(
             self._base_values['pressure'],
-            amplitude=0.15,
-            period=10
+            amplitude=0.25,
+            period=2
         )
         # 添加随机扰动
-        pressure += random.uniform(-0.02, 0.02)
-        # 压力传感器原始值范围 0-10000 对应 0-10 MPa (即 0.001 MPa/单位)
-        pressure_raw = int(pressure * 1000)
+        pressure += random.uniform(-0.03, 0.03)
+        # 压力传感器原始值：转换器使用 raw * 0.01 kPa，所以 raw = pressure_mpa * 1000 / 0.01 = pressure_mpa * 100000
+        # 例如：0.45 MPa = 450 kPa，raw = 450 / 0.01 = 45000
+        pressure_kpa = pressure * 1000  # MPa 转 kPa
+        pressure_raw = int(pressure_kpa / 0.01)  # kPa 转原始值
         data[336:338] = struct.pack(">H", min(65535, max(0, pressure_raw)))
 
-        # 振动传感器 (6个, 起始偏移 338, 模块大小 84字节)
-        vib_base_offsets = [338, 422, 506, 590, 674, 758]
+        # 振动传感器 (6个, 起始偏移 338, 模块大小 116字节)
+        # 只生成核心的 V/D/HZ 三组数据（9个字段）
+        vib_base_offsets = [338, 454, 570, 686, 802, 918]
         for idx, base in enumerate(vib_base_offsets):
             if not self._device_running[idx]:
                 # 设备未运行，振动为0
                 continue
                 
             base_v = self._base_values['vibration'][idx] * self._load_factor[idx]
-            # 振动波动 ±25% (周期约15-20秒)
-            vib_vx = self._add_sine_wave(base_v, amplitude=0.25, period=3 + idx)
-            vib_vy = self._add_sine_wave(base_v * 0.9, amplitude=0.25, period=4 + idx)
-            vib_vz = self._add_sine_wave(base_v * 1.1, amplitude=0.25, period=5 + idx)
+            # 振动波动 ±35% (周期约10秒，更快更明显)
+            vib_vx = self._add_sine_wave(base_v, amplitude=0.35, period=2)
+            vib_vy = self._add_sine_wave(base_v * 0.9, amplitude=0.35, period=2)
+            vib_vz = self._add_sine_wave(base_v * 1.1, amplitude=0.35, period=2)
             freq = 50.0 + random.uniform(-5, 5)
 
             def _write_word(offset: int, value: float, scale: float):
                 raw = int(max(0, min(65535, value / scale)))
                 data[base + offset: base + offset + 2] = struct.pack(">H", raw)
 
-            # 位移幅值 (μm) DX/DY/DZ
-            _write_word(0, vib_vx * 1000, 1.0)
-            _write_word(2, vib_vy * 1000, 1.0)
-            _write_word(4, vib_vz * 1000, 1.0)
+            # 速度幅值 (mm/s) VX/VY/VZ - offset 12, 14, 16
+            _write_word(12, vib_vx, 1.0)
+            _write_word(14, vib_vy, 1.0)
+            _write_word(16, vib_vz, 1.0)
 
-            # 频率 (Hz) HZX/HZY/HZZ, scale=0.1
-            _write_word(6, freq, 0.1)
-            _write_word(8, freq, 0.1)
-            _write_word(10, freq, 0.1)
+            # 位移幅值 (μm) DX/DY/DZ - offset 26, 28, 30
+            _write_word(26, vib_vx * 1000, 1.0)
+            _write_word(28, vib_vy * 1000, 1.0)
+            _write_word(30, vib_vz * 1000, 1.0)
 
-            # X轴数据块
-            _write_word(12, 2.0, 1.0)  # CFX
-            _write_word(14, 2.5 + random.uniform(-0.3, 0.3), 0.01)  # KX
-            _write_word(16, 2.6 + random.uniform(-0.3, 0.3), 0.01)  # AAVGX
-            _write_word(18, vib_vx * 1.2, 0.1)  # VARX
-            _write_word(20, vib_vx * 800, 1.0)  # RRAX 位移峰值
-            _write_word(22, 1.5, 0.01)  # WX 包络加速度
-            _write_word(24, 10, 1.0)  # PIX
-            _write_word(26, 12, 1.0)  # PCX
-            _write_word(28, 14, 1.0)  # SKX
-            _write_word(30, vib_vx, 0.1)  # VRMSX
-            _write_word(32, vib_vx * 1.1, 0.1)  # VKX
-            _write_word(34, vib_vx * 900, 1.0)  # DRMSX 位移RMS
-
-            # Y轴数据块
-            _write_word(36, 2.1, 1.0)  # CFY
-            _write_word(38, 2.6 + random.uniform(-0.3, 0.3), 0.01)  # KY
-            _write_word(40, 2.7 + random.uniform(-0.3, 0.3), 0.01)  # AAVGY
-            _write_word(42, vib_vy * 1.2, 0.1)  # VARY
-            _write_word(44, vib_vy * 800, 1.0)  # RRAY
-            _write_word(46, 1.6, 0.01)  # WY
-            _write_word(48, 10, 1.0)  # PIY
-            _write_word(50, 12, 1.0)  # PCY
-            _write_word(52, 14, 1.0)  # SKY
-            _write_word(54, vib_vy, 0.1)  # VRMSY
-            _write_word(56, vib_vy * 1.1, 0.1)  # VKY
-            _write_word(58, vib_vy * 900, 1.0)  # DRMSY
-
-            # Z轴数据块
-            _write_word(60, 2.2, 1.0)  # CFZ
-            _write_word(62, 2.7 + random.uniform(-0.3, 0.3), 0.01)  # KZ
-            _write_word(64, 2.8 + random.uniform(-0.3, 0.3), 0.01)  # AAVGZ
-            _write_word(66, vib_vz * 1.2, 0.1)  # VARZ
-            _write_word(68, vib_vz * 800, 1.0)  # RRAZ
-            _write_word(70, 1.7, 0.01)  # WZ
-            _write_word(72, 10, 1.0)  # PIZ
-            _write_word(74, 12, 1.0)  # PCZ
-            _write_word(76, 14, 1.0)  # SKZ
-            _write_word(78, vib_vz, 0.1)  # VRMSZ
-            _write_word(80, vib_vz * 1.1, 0.1)  # VKZ
-            _write_word(82, vib_vz * 900, 1.0)  # DRMSZ
+            # 频率 (Hz) HZX/HZY/HZZ - offset 32, 34, 36
+            _write_word(32, freq, 1.0)
+            _write_word(34, freq, 1.0)
+            _write_word(36, freq, 1.0)
         
         return bytes(data)
     

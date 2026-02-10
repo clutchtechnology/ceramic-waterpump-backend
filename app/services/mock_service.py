@@ -34,9 +34,10 @@ class MockService:
 
         return {
             'id': pump_id,
-            'voltage': round(voltage_base, 1),
-            'current': round(current_base, 1),
-            'power': round(power_base, 1),
+            'Ua_0': round(voltage_base, 1),
+            'I_0': round(current_base, 1),
+            'Pt': round(power_base, 1),
+            'ImpEp': round(random.uniform(1000, 5000), 1),
             'status': MockService._calculate_status(voltage_base, current_base, power_base),
             'alarms': MockService._generate_alarms(voltage_base, current_base, power_base),
             'vibration': vibration,
@@ -83,7 +84,7 @@ class MockService:
         
         参数：
         - pump_id: 水泵编号（压力表时为 None）
-        - parameter: 参数名 (voltage/current/power/pressure)
+        - parameter: 参数名 (Ua_0/I_0/Pt/pressure)
         - start_time: 开始时间
         - end_time: 结束时间
         - interval_seconds: 数据点间隔（秒），默认5秒
@@ -95,11 +96,11 @@ class MockService:
         if interval_seconds < 1:
             interval_seconds = 1
         
-        # 基础值
+        # 基础值 (字段名与 InfluxDB 一致)
         base_values = {
-            'voltage': 380.0,
-            'current': 30.0,
-            'power': 10.5,
+            'Ua_0': 380.0,
+            'I_0': 30.0,
+            'Pt': 10.5,
             'pressure': 0.5
         }
         

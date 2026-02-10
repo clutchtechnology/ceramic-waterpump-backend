@@ -13,20 +13,22 @@ WebSocket 连接管理器
 
 import asyncio
 import logging
+import random
 from datetime import datetime, timezone
 from typing import Dict, Set, Optional, Any
 from fastapi import WebSocket, WebSocketDisconnect
 from starlette.websockets import WebSocketState
 
 from config import get_settings
-from app.services.polling_service import get_latest_data, get_latest_status, is_polling_running
+from app.services.polling_service_data_db2 import get_latest_data
+from app.services.polling_service_status_db1_3 import get_latest_status, is_status_polling_running
 from app.services.mock_service import MockService
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
 
-# 推送间隔 (秒)
-PUSH_INTERVAL = 0.1
+# 推送间隔 (秒) - 使用 DB2 轮询间隔作为推送间隔
+PUSH_INTERVAL = settings.poll_interval_db2
 HEARTBEAT_TIMEOUT = 45  # 心跳超时时间
 
 
@@ -170,12 +172,12 @@ class ConnectionManager:
                 # 推送实时数据
                 if realtime_subs > 0:
                     await self._push_realtime_data(timestamp)
-                    logger.debug(f"[WS] 推送 realtime_data -> {realtime_subs} 个订阅者")
+                    # logger.info(f"[WS] 推送 realtime_data -> {realtime_subs} 个订阅者")
 
                 # 推送设备状态
                 if status_subs > 0:
                     await self._push_device_status(timestamp)
-                    logger.debug(f"[WS] 推送 device_status -> {status_subs} 个订阅者")
+                    # logger.info(f"[WS] 推送 device_status -> {status_subs} 个订阅者")
 
             except Exception as e:
                 logger.error(f"[WS] 推送任务异常: {e}", exc_info=True)
@@ -183,49 +185,64 @@ class ConnectionManager:
             await asyncio.sleep(PUSH_INTERVAL)
 
     async def _push_realtime_data(self, timestamp: str):
-        """推送实时数据 (realtime_data)"""
-        # 优先使用 polling_service 缓存数据
+        """推送实时数据 (realtime_data) - 完整17个字段"""
+        # 统一使用轮询服务的缓存数据
         latest = get_latest_data()
         
-        # 如果轮询服务未运行或缓存为空，使用 MockService 生成数据
-        if not latest or not is_polling_running():
-            mock_data = MockService.generate_realtime_batch()
-            source = "mock"
-            
-            message = {
-                "type": "realtime_data",
-                "success": True,
-                "timestamp": timestamp,
-                "source": source,
-                "data": {
-                    "pumps": mock_data["pumps"],
-                    "pressure": mock_data["pressure"],
-                },
-            }
-            await self.broadcast("realtime", message)
+        # 如果缓存为空，返回空数据
+        if not latest:
+            logger.warning("[WS] 轮询服务缓存为空，无法推送数据")
             return
         
-        source = "mock" if settings.use_mock_data else "plc"
+        is_mock = settings.use_mock_data
+        source = "mock" if is_mock else "plc"
+        # Mock模式: 添加微小波动让数据实时变化 (轮询5s更新一次，推送0.1s一次)
+        _n = self._mock_noise if is_mock else lambda v, *_: v
 
-        # 构建水泵数组
+        # 构建水泵数组 (完整字段)
         pumps = []
         for i in range(1, 7):
             pump_key = f"pump_{i}"
             pump_data = latest.get(pump_key, {})
+            
+            # 获取电表数据
+            electricity = pump_data.get("electricity", {})
+            
+            # 获取振动数据
+            vibration = pump_data.get("vibration", {})
+            
+            # 计算运行状态 (通过功率判断)
+            power = _n(pump_data.get("power", 0.0))
+            status = "running" if power > 0.001 else "stopped"
+            
             pumps.append({
                 "id": i,
-                "voltage": pump_data.get("voltage", 0.0),
-                "current": pump_data.get("current", 0.0),
-                "power": pump_data.get("power", 0.0),
-                "energy": pump_data.get("energy", 0.0),
-                "status": self._calc_pump_status(pump_data),
-                "alarms": self._calc_pump_alarms(pump_data),
+                "status": status,
+                # 电气参数 (与 InfluxDB 字段名一致)
+                "Pt": power,
+                "ImpEp": _n(pump_data.get("energy", 0.0)),
+                "I_0": _n(electricity.get("I_0", 0.0)),
+                "I_1": _n(electricity.get("I_1", 0.0)),
+                "I_2": _n(electricity.get("I_2", 0.0)),
+                "Ua_0": _n(electricity.get("Ua_0", 0.0)),
+                "Ua_1": _n(electricity.get("Ua_1", 0.0)),
+                "Ua_2": _n(electricity.get("Ua_2", 0.0)),
+                # 振动参数（9个核心字段：速度幅值 + 位移幅值 + 频率）
+                "vib_velocity_x": _n(vibration.get("vx", 0.0)),
+                "vib_velocity_y": _n(vibration.get("vy", 0.0)),
+                "vib_velocity_z": _n(vibration.get("vz", 0.0)),
+                "vib_displacement_x": _n(vibration.get("dx", 0.0)),
+                "vib_displacement_y": _n(vibration.get("dy", 0.0)),
+                "vib_displacement_z": _n(vibration.get("dz", 0.0)),
+                "vib_frequency_x": _n(vibration.get("hzx", 0.0)),
+                "vib_frequency_y": _n(vibration.get("hzy", 0.0)),
+                "vib_frequency_z": _n(vibration.get("hzz", 0.0)),
             })
 
         # 构建压力数据
         pressure_data = latest.get("pressure", {})
         pressure = {
-            "value": pressure_data.get("value", 0.0),
+            "value": _n(pressure_data.get("value", 0.0)),
             "status": self._calc_pressure_status(pressure_data),
         }
 
@@ -243,11 +260,17 @@ class ConnectionManager:
         await self.broadcast("realtime", message)
 
     async def _push_device_status(self, timestamp: str):
-        """推送设备状态 (device_status)"""
+        """推送设备状态 (device_status) - 仅在状态变化时推送"""
+        from app.services.polling_service_status_db1_3 import has_status_changed, reset_status_changed
+        
+        # 检查状态是否变化
+        if not has_status_changed():
+            return
+        
         latest_status = get_latest_status()
         
         # 如果轮询服务未运行或缓存为空，生成 Mock 设备状态
-        if not latest_status or not is_polling_running():
+        if not latest_status or not is_status_polling_running():
             # 生成 Mock 设备状态
             mock_devices = []
             for i in range(1, 7):
@@ -276,6 +299,7 @@ class ConnectionManager:
                 },
             }
             await self.broadcast("device_status", message)
+            reset_status_changed()
             return
         
         source = latest_status.get("source", "mock" if settings.use_mock_data else "plc")
@@ -307,11 +331,13 @@ class ConnectionManager:
         }
 
         await self.broadcast("device_status", message)
+        reset_status_changed()
+        logger.info(f"[WS] 推送 device_status (状态已变化) -> {self.get_channel_subscribers('device_status')} 个订阅者")
 
     async def _cleanup_loop(self):
         """清理超时连接的循环"""
         while self._is_running:
-            await asyncio.sleep(15)  # 每 15 秒检查一次
+            await asyncio.sleep(10)  # 优化：每 10 秒检查一次，更快清理断开连接
 
             now = datetime.now(timezone.utc)
             disconnected = []
@@ -319,7 +345,7 @@ class ConnectionManager:
             for ws, last_hb in self.last_heartbeat.items():
                 delta = (now - last_hb).total_seconds()
                 if delta > HEARTBEAT_TIMEOUT:
-                    logger.warning(f"客户端心跳超时 ({delta:.0f}s)，断开连接")
+                    logger.warning(f"[WS] 客户端心跳超时 ({delta:.0f}s)，断开连接")
                     disconnected.append(ws)
 
             for ws in disconnected:
@@ -328,10 +354,27 @@ class ConnectionManager:
                 except Exception:
                     pass
                 self.disconnect(ws)
+            
+            # 优化：清理已断开但未正确移除的连接
+            stale_connections = []
+            for ws in self.active_connections.keys():
+                if ws.application_state != WebSocketState.CONNECTED or ws.client_state != WebSocketState.CONNECTED:
+                    stale_connections.append(ws)
+            
+            for ws in stale_connections:
+                logger.warning(f"[WS] 清理僵尸连接")
+                self.disconnect(ws)
 
     # ========================================
     # 辅助方法：计算状态和报警
     # ========================================
+    @staticmethod
+    def _mock_noise(value: float, noise_pct: float = 0.015) -> float:
+        """Mock模式: 给数值添加微小随机波动 (默认 ±1.5%)"""
+        if abs(value) < 1e-6:
+            return 0.0
+        return round(value * (1 + random.uniform(-noise_pct, noise_pct)), 4)
+
     def _calc_pump_status(self, pump_data: Dict[str, Any]) -> str:
         """根据水泵数据计算状态"""
         if not pump_data:

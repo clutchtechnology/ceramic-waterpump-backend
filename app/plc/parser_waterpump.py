@@ -28,7 +28,21 @@ class WaterpumpParser:
             for module in modules:
                 module_type = module.get("module_type")
                 module_tag = module.get("module_tag") or module_type
-                start_offset = int(module.get("start_offset", 0))
+                
+                # 1. 安全获取 start_offset，处理 None 值
+                start_offset_raw = module.get("start_offset", 0)
+                if start_offset_raw is None:
+                    start_offset_raw = 0
+                
+                try:
+                    start_offset = int(start_offset_raw)
+                except (TypeError, ValueError) as e:
+                    device_modules[module_tag] = {
+                        "module_type": module_type,
+                        "module_tag": module_tag,
+                        "fields": {"error": f"invalid start_offset: {start_offset_raw}"}
+                    }
+                    continue
 
                 if not module_type:
                     continue

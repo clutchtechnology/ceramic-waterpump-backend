@@ -114,6 +114,32 @@ async def _monitor_loop():
                 else:
                     logger.warning(alert['message'])
             
+            # 智能 GC 触发策略：同时监控系统内存和进程内存
+            system_memory_percent = stats.get("system", {}).get("memory_percent", 0)
+            process_memory_mb = stats.get("process", {}).get("memory_mb", 0)
+            
+            # 触发条件：系统内存 > 95% 且 进程内存 > 200MB（说明程序确实占用了不少内存）
+            if system_memory_percent > 95 and process_memory_mb > 200:
+                logger.warning(f"系统内存严重不足 ({system_memory_percent:.1f}%)，且进程占用 {process_memory_mb:.1f} MB，触发垃圾回收")
+                import gc
+                before_mb = process_memory_mb
+                collected = gc.collect()
+                # 重新获取进程内存
+                try:
+                    import psutil
+                    after_mb = psutil.Process().memory_info().rss / 1024 / 1024
+                    freed_mb = before_mb - after_mb
+                    logger.info(f"GC 回收了 {collected} 个对象，释放 {freed_mb:.1f} MB 内存 (前: {before_mb:.1f} MB -> 后: {after_mb:.1f} MB)")
+                except:
+                    logger.info(f"GC 回收了 {collected} 个对象")
+            
+            # 或者：进程内存超过 500MB（说明可能有内存泄漏）
+            elif process_memory_mb > 500:
+                logger.warning(f"进程内存使用过高 ({process_memory_mb:.1f} MB)，可能存在内存泄漏，触发垃圾回收")
+                import gc
+                collected = gc.collect()
+                logger.info(f"GC 回收了 {collected} 个对象")
+            
             # 如果 CPU/内存持续过高，建议降低轮询频率
             if stats.get("system", {}).get("cpu_percent", 0) > 95:
                 logger.warning("建议: CPU 过高，考虑调大 plc_poll_interval 或降低 AI 模型推理频率")

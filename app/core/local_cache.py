@@ -106,9 +106,9 @@ class LocalCache:
             cursor = self._conn.execute("SELECT COUNT(*) FROM pending_points")
             count = cursor.fetchone()[0]
             if count > 0:
-                print(f"⚠️ 本地缓存有 {count} 条待写入数据")
+                print(f"[WARN] 本地缓存有 {count} 条待写入数据")
         except sqlite3.Error as e:
-            print(f"❌ SQLite 初始化失败: {e}")
+            print(f"[ERROR] SQLite 初始化失败: {e}")
             self._conn = None
     
     def save_points(self, points: List[CachedPoint]) -> int:
@@ -139,7 +139,7 @@ class LocalCache:
                 self._conn.commit()
                 return len(points)
             except sqlite3.Error as e:
-                print(f"❌ 本地缓存保存失败: {e}")
+                print(f"[ERROR] 本地缓存保存失败: {e}")
                 return 0
     
     def get_pending_points(
@@ -181,7 +181,7 @@ class LocalCache:
                         pass
                 return results
             except sqlite3.Error as e:
-                print(f"❌ 读取本地缓存失败: {e}")
+                print(f"[ERROR] 读取本地缓存失败: {e}")
                 return []
     
     def mark_success(self, ids: List[int]) -> None:
@@ -198,7 +198,7 @@ class LocalCache:
                 )
                 self._conn.commit()
             except sqlite3.Error as e:
-                print(f"❌ 删除缓存记录失败: {e}")
+                print(f"[ERROR] 删除缓存记录失败: {e}")
     
     def mark_retry(self, ids: List[int]) -> None:
         """7, 标记数据点需要重试（增加重试计数）"""
@@ -219,7 +219,7 @@ class LocalCache:
                 )
                 self._conn.commit()
             except sqlite3.Error as e:
-                print(f"❌ 更新重试计数失败: {e}")
+                print(f"[ERROR] 更新重试计数失败: {e}")
     
     def get_stats(self) -> Dict[str, Any]:
         """8, 获取缓存统计信息"""
@@ -259,16 +259,16 @@ class LocalCache:
                 deleted = cursor.rowcount
                 self._conn.commit()
                 if deleted > 0:
-                    print(f"🧹 清理了 {deleted} 条过期缓存记录")
+                    print(f"[CLEANUP] 清理了 {deleted} 条过期缓存记录")
             except sqlite3.Error as e:
-                print(f"❌ 清理缓存失败: {e}")
+                print(f"[ERROR] 清理缓存失败: {e}")
     
     def close(self) -> None:
         """10, 关闭数据库连接"""
         if self._conn is not None:
             try:
                 self._conn.close()
-                print("✅ SQLite 缓存连接已关闭")
+                print("[OK] SQLite 缓存连接已关闭")
             except sqlite3.Error:
                 pass
             self._conn = None
