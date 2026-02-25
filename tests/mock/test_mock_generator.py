@@ -43,7 +43,7 @@ def test_db1_status():
             error = bool(status_byte & 0x04)
             status_word = struct.unpack(">H", db1[offset+2:offset+4])[0]
             
-            state = "✅ OK" if done and not error else ("⚠️ BUSY" if busy else ("❌ ERROR" if error else "⬜ IDLE"))
+            state = " OK" if done and not error else (" BUSY" if busy else (" ERROR" if error else "⬜ IDLE"))
             print(f"  {name}: {state} (done={done}, busy={busy}, error={error}, status=0x{status_word:04X})")
 
 
@@ -112,7 +112,7 @@ def test_with_parsers():
             
             # 解析状态
             status_result = parse_status_waterpump_master_db(db1)
-            print(f"  📊 状态汇总: {status_result.get('summary', {})}")
+            print(f"   状态汇总: {status_result.get('summary', {})}")
             
             # 解析传感器
             sensor_result = parse_waterpump_db(db2)
@@ -134,10 +134,10 @@ def test_with_parsers():
                 pres_converted = pres_conv.convert(pressure_raw)
                 print(f"  💧 pressure: {pres_converted['pressure_kpa']} kPa")
         
-        print("\n✅ 解析器测试通过!")
+        print("\n 解析器测试通过!")
         
     except ImportError as e:
-        print(f"\n⚠️ 无法导入解析器: {e}")
+        print(f"\n 无法导入解析器: {e}")
         print("   请确保在项目根目录运行此脚本")
 
 

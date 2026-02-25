@@ -4,11 +4,22 @@ db_mappings:
   # ============================================================
   - db_number: 2
     db_name: "Data_DB"
-    total_size: 1034
+    total_size: 338
     config_file: "configs/config_waterpump_db2.yaml"
-    parser_class: "WaterpumpParser"
+    parser_class: "DataDB2Parser"
     enabled: true
-    description: "6个电表 + 1个压力表 + 6个振动传感器(核心指标对齐料仓)"
+    description: "6个电表 + 1个压力表 (读到偏移量337)"
+
+  # ============================================================
+  # DB4 - 振动传感器数据块
+  # ============================================================
+  - db_number: 4
+    db_name: "Vibration_DB"
+    total_size: 228
+    config_file: "configs/config_vib_4_db4.yaml"
+    parser_class: "VibDB4Parser"
+    enabled: true
+    description: "6个振动传感器 (每个38字节)"
 
   # ============================================================
   # DB3 - 状态数据块 (DataState - 通信状态)

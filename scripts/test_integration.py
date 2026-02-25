@@ -22,7 +22,7 @@ async def test_stats_endpoint():
                     data = await resp.json()
                     if data.get("success"):
                         stats = data.get("data", {})
-                        print("✅ 统计端点正常")
+                        print(" 统计端点正常")
                         print(f"  - 轮询次数: {stats.get('polling_count', 0)}")
                         print(f"  - 缓冲区大小: {stats.get('buffer_size', 0)}")
                         print(f"  - InfluxDB写入: {stats.get('influx_write_count', 0)}次")
@@ -30,18 +30,18 @@ async def test_stats_endpoint():
                         print(f"  - 待重试: {stats.get('cache_pending', 0)}点")
                         
                         plc_stats = stats.get('plc_stats', {})
-                        print(f"  - PLC连接: {'✅ 已连接' if plc_stats.get('connected') else '❌ 未连接'}")
+                        print(f"  - PLC连接: {' 已连接' if plc_stats.get('connected') else ' 未连接'}")
                         print(f"  - PLC读取: {plc_stats.get('read_count', 0)}次")
                         print(f"  - PLC错误: {plc_stats.get('error_count', 0)}次")
                         print(f"  - PLC重连: {plc_stats.get('reconnect_count', 0)}次")
                         print(f"  - 平均耗时: {plc_stats.get('avg_read_time', 0):.2f}ms")
                         return True
                     else:
-                        print(f"❌ API返回失败: {data.get('error')}")
+                        print(f" API返回失败: {data.get('error')}")
                 else:
-                    print(f"❌ HTTP状态码: {resp.status}")
+                    print(f" HTTP状态码: {resp.status}")
         except Exception as e:
-            print(f"❌ 请求失败: {e}")
+            print(f" 请求失败: {e}")
     
     return False
 
@@ -59,7 +59,7 @@ async def test_device_status():
                     data = await resp.json()
                     if data.get("success"):
                         devices = data.get("data", {}).get("devices", [])
-                        print(f"✅ 设备状态正常 (共{len(devices)}个设备)")
+                        print(f" 设备状态正常 (共{len(devices)}个设备)")
                         
                         for dev in devices[:3]:  # 只显示前3个
                             print(f"  - {dev.get('device_id')}: "
@@ -71,11 +71,11 @@ async def test_device_status():
                             print(f"  ... 等 {len(devices)-3} 个设备")
                         return True
                     else:
-                        print(f"❌ API返回失败: {data.get('error')}")
+                        print(f" API返回失败: {data.get('error')}")
                 else:
-                    print(f"❌ HTTP状态码: {resp.status}")
+                    print(f" HTTP状态码: {resp.status}")
         except Exception as e:
-            print(f"❌ 请求失败: {e}")
+            print(f" 请求失败: {e}")
     
     return False
 
@@ -108,7 +108,7 @@ async def test_batch_buffering():
                             
                             # 检测到批量写入
                             if influx_count > last_influx_count:
-                                print(" ✅ 批量写入触发!")
+                                print("  批量写入触发!")
                                 last_influx_count = influx_count
                                 if i >= 29:  # 第30次轮询应该触发
                                     return True
@@ -116,7 +116,7 @@ async def test_batch_buffering():
                                 print()
             
             except Exception as e:
-                print(f"❌ 监控失败: {e}")
+                print(f" 监控失败: {e}")
             
             await asyncio.sleep(5)
     
@@ -163,7 +163,7 @@ async def test_local_cache():
                             print(f"[{i*5}s] 本地缓存: {cache_count}次 (待重试{pending}点)")
                             
                             if cache_count > initial_cache:
-                                print("✅ 本地缓存机制正常工作!")
+                                print(" 本地缓存机制正常工作!")
                                 print("\n请执行: docker start ceramic-influxdb")
                                 print("等待系统自动重试缓存数据...")
                                 return True
@@ -207,10 +207,10 @@ async def main():
     # 总结
     print("\n" + "=" * 60)
     print("测试结果总结:")
-    print(f"  ✅ 统计端点: {'通过' if stats_ok else '失败'}")
-    print(f"  ✅ 设备状态: {'通过' if status_ok else '失败'}")
-    print(f"  {'✅' if batch_ok else '⏭️ '} 批量缓冲: {'通过' if batch_ok else '跳过' if batch_ok is None else '失败'}")
-    print(f"  {'✅' if cache_ok else '⏭️ '} 本地缓存: {'通过' if cache_ok else '跳过' if cache_ok is None else '失败'}")
+    print(f"   统计端点: {'通过' if stats_ok else '失败'}")
+    print(f"   设备状态: {'通过' if status_ok else '失败'}")
+    print(f"  {'' if batch_ok else '⏭️ '} 批量缓冲: {'通过' if batch_ok else '跳过' if batch_ok is None else '失败'}")
+    print(f"  {'' if cache_ok else '⏭️ '} 本地缓存: {'通过' if cache_ok else '跳过' if cache_ok is None else '失败'}")
     print("=" * 60)
 
 

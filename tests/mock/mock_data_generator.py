@@ -128,6 +128,78 @@ class MockDataGenerator:
                 data[offset+2:offset+4] = struct.pack(">H", 0)
         
         return bytes(data)
+    
+    # ============================================================
+    # DB4: 振动传感器数据 (228 字节)
+    # ============================================================
+    def generate_db4_vibration(self) -> bytes:
+        """生成 DB4 振动传感器数据 (228 字节)
+        
+        结构: 6 个振动传感器，每个 38 字节
+        - accel (加速度): 6 字节 (offset 0)
+        - accel_f (加速度频率): 6 字节 (offset 6)
+        - vel (速度): 6 字节 (offset 12)
+        - reserved (预留+温度): 8 字节 (offset 18)
+        - dis_f (位移): 6 字节 (offset 26)
+        - freq (频率): 6 字节 (offset 32)
+        """
+        data = bytearray(228)
+        
+        for idx in range(6):
+            base_offset = idx * 38
+            
+            if not self._device_running[idx]:
+                # 设备未运行，振动为0
+                continue
+            
+            base_v = self._base_values['vibration'][idx] * self._load_factor[idx]
+            # 振动波动 ±35% (周期约10秒，支持小数变化)
+            vib_vx = self._add_sine_wave(base_v, amplitude=0.35, period=2)
+            vib_vy = self._add_sine_wave(base_v * 0.9, amplitude=0.35, period=2)
+            vib_vz = self._add_sine_wave(base_v * 1.1, amplitude=0.35, period=2)
+            # 频率波动 ±5 Hz (支持小数)
+            freq_x = 50.0 + random.uniform(-5, 5)
+            freq_y = 50.0 + random.uniform(-5, 5)
+            freq_z = 50.0 + random.uniform(-5, 5)
+            temp = 45.0 + random.uniform(-5, 5)
+            
+            def _write_int(offset: int, value: float):
+                """写入 Int (有符号 16 位)，支持小数精度"""
+                raw = int(round(max(-32768, min(32767, value))))
+                data[base_offset + offset: base_offset + offset + 2] = struct.pack(">h", raw)
+            
+            # 1. accel (加速度) - offset 0, 2, 4 (放大100倍保留小数)
+            _write_int(0, vib_vx * 100)
+            _write_int(2, vib_vy * 100)
+            _write_int(4, vib_vz * 100)
+            
+            # 2. accel_f (加速度频率) - offset 6, 8, 10 (放大10倍保留小数)
+            _write_int(6, freq_x * 10)
+            _write_int(8, freq_y * 10)
+            _write_int(10, freq_z * 10)
+            
+            # 3. vel (速度) - offset 12, 14, 16 (放大100倍保留小数，转换器会除以100)
+            _write_int(12, vib_vx * 100)
+            _write_int(14, vib_vy * 100)
+            _write_int(16, vib_vz * 100)
+            
+            # 4. reserved (预留+温度) - offset 18, 20, 22, 24
+            _write_int(18, 0)
+            _write_int(20, 0)
+            _write_int(22, 0)
+            _write_int(24, temp * 10)  # 温度放大10倍保留小数
+            
+            # 5. dis_f (位移) - offset 26, 28, 30 (放大10倍保留小数，单位 μm)
+            _write_int(26, vib_vx * 1000 * 10)
+            _write_int(28, vib_vy * 1000 * 10)
+            _write_int(30, vib_vz * 1000 * 10)
+            
+            # 6. freq (频率) - offset 32, 34, 36 (放大10倍保留小数)
+            _write_int(32, freq_x * 10)
+            _write_int(34, freq_y * 10)
+            _write_int(36, freq_z * 10)
+        
+        return bytes(data)
 
     # ============================================================
     # DB3: 从站状态数据 (80 字节)
@@ -166,6 +238,7 @@ class MockDataGenerator:
         结构:
         - 6 个水泵电表: 每个 56 字节 (14 个 REAL 值)
         - 压力传感器: 2 字节 (Word)
+        - 6 个振动传感器: 每个 116 字节
         
         电表字段 (每个 56 字节):
         - Uab, Ubc, Uca (线电压, 3x4=12B)
@@ -292,6 +365,7 @@ class MockDataGenerator:
             1: self.generate_db1_status(),
             2: self.generate_db2_sensors(),
             3: self.generate_db3_status(),
+            4: self.generate_db4_vibration(),
         }
     
     def get_device_status(self) -> Dict[str, bool]:

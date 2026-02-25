@@ -77,7 +77,7 @@ try:
         print(f"  示例: {data[0]}\n")
 
 except Exception as e:
-    print(f"⚠️  InfluxDB 测试跳过: {e}\n")
+    print(f"  InfluxDB 测试跳过: {e}\n")
     print("  → 请确保 docker-compose up -d 已运行\n")
 
 # 总结

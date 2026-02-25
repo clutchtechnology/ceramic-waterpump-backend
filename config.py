@@ -65,8 +65,9 @@ class Settings(BaseSettings):
     verbose_polling_log: bool = Field(default=False, alias="VERBOSE_POLLING_LOG")
     
     # 轮询间隔配置（秒）
-    poll_interval_db2: float = Field(default=0.1, alias="POLL_INTERVAL_DB2")  # DB2 数据轮询间隔（默认 0.1s）
+    poll_interval_db2: float = Field(default=0.5, alias="POLL_INTERVAL_DB2")  # DB2 数据轮询间隔（默认 0.5s）
     poll_interval_db1_3: float = Field(default=5.0, alias="POLL_INTERVAL_DB1_3")  # DB1/DB3 状态轮询间隔（默认 5s）
+    poll_interval_db4: float = Field(default=0.5, alias="POLL_INTERVAL_DB4")  # DB4 振动传感器轮询间隔（默认 5s）
 
     # Mock模式 (USE_MOCK_DATA=true 时使用模拟数据生成器代替真实PLC)
     use_mock_data: bool = Field(default=True, alias="USE_MOCK_DATA")
@@ -85,6 +86,9 @@ class Settings(BaseSettings):
     influx_token: str = Field(default="", alias="INFLUX_TOKEN")
     influx_org: str = Field(default="", alias="INFLUX_ORG")
     influx_bucket: str = Field(default="", alias="INFLUX_BUCKET")
+
+    # 振动传感器配置
+    vib_high_precision: bool = Field(default=False, alias="VIB_HIGH_PRECISION")  # 振动传感器精度模式
 
     class Config:
         # 使用绝对路径，确保打包后也能找到配置文件
@@ -105,4 +109,6 @@ def get_settings() -> Settings:
     print(f"[配置] ENABLE_POLLING: {settings.enable_polling}")
     print(f"[配置] POLL_INTERVAL_DB2: {settings.poll_interval_db2}s")
     print(f"[配置] POLL_INTERVAL_DB1_3: {settings.poll_interval_db1_3}s")
+    print(f"[配置] POLL_INTERVAL_DB4: {settings.poll_interval_db4}s")
+    print(f"[配置] VIB_HIGH_PRECISION: {settings.vib_high_precision}")
     return settings

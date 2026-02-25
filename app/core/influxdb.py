@@ -188,6 +188,9 @@ def build_point(
         # 4.3, 字符串字段仅限 alarm_logs 或 comm_state
         if isinstance(v, str) and not (allow_string or k == "comm_state"):
             continue
+        # 4.3.1, int 强制转 float, 防止 InfluxDB 类型冲突
+        if isinstance(v, int) and not isinstance(v, bool):
+            v = float(v)
         point = point.field(k, v)
         valid_fields += 1
     

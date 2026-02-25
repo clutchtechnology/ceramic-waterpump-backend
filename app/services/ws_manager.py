@@ -185,7 +185,7 @@ class ConnectionManager:
             await asyncio.sleep(PUSH_INTERVAL)
 
     async def _push_realtime_data(self, timestamp: str):
-        """推送实时数据 (realtime_data) - 完整17个字段"""
+        """推送实时数据 (realtime_data) - 6电表 + 1压力 + 6振动"""
         # 统一使用轮询服务的缓存数据
         latest = get_latest_data()
         
@@ -199,7 +199,7 @@ class ConnectionManager:
         # Mock模式: 添加微小波动让数据实时变化 (轮询5s更新一次，推送0.1s一次)
         _n = self._mock_noise if is_mock else lambda v, *_: v
 
-        # 构建水泵数组 (完整字段)
+        # 构建水泵数组 (电表数据)
         pumps = []
         for i in range(1, 7):
             pump_key = f"pump_{i}"
@@ -207,9 +207,6 @@ class ConnectionManager:
             
             # 获取电表数据
             electricity = pump_data.get("electricity", {})
-            
-            # 获取振动数据
-            vibration = pump_data.get("vibration", {})
             
             # 计算运行状态 (通过功率判断)
             power = _n(pump_data.get("power", 0.0))
@@ -227,16 +224,6 @@ class ConnectionManager:
                 "Ua_0": _n(electricity.get("Ua_0", 0.0)),
                 "Ua_1": _n(electricity.get("Ua_1", 0.0)),
                 "Ua_2": _n(electricity.get("Ua_2", 0.0)),
-                # 振动参数（9个核心字段：速度幅值 + 位移幅值 + 频率）
-                "vib_velocity_x": _n(vibration.get("vx", 0.0)),
-                "vib_velocity_y": _n(vibration.get("vy", 0.0)),
-                "vib_velocity_z": _n(vibration.get("vz", 0.0)),
-                "vib_displacement_x": _n(vibration.get("dx", 0.0)),
-                "vib_displacement_y": _n(vibration.get("dy", 0.0)),
-                "vib_displacement_z": _n(vibration.get("dz", 0.0)),
-                "vib_frequency_x": _n(vibration.get("hzx", 0.0)),
-                "vib_frequency_y": _n(vibration.get("hzy", 0.0)),
-                "vib_frequency_z": _n(vibration.get("hzz", 0.0)),
             })
 
         # 构建压力数据
@@ -246,6 +233,29 @@ class ConnectionManager:
             "status": self._calc_pressure_status(pressure_data),
         }
 
+        # 构建振动传感器数组 (6个独立的振动传感器)
+        vibrations = []
+        for i in range(1, 7):
+            vib_key = f"vib_{i}"
+            vib_data = latest.get(vib_key, {})
+            
+            if vib_data:
+                vibration = vib_data.get("vibration", {})
+                vibrations.append({
+                    "device_id": vib_key,
+                    "device_name": vib_data.get("device_name", f"{i}号振动传感器"),
+                    "vx": _n(vibration.get("vx", 0.0)),
+                    "vy": _n(vibration.get("vy", 0.0)),
+                    "vz": _n(vibration.get("vz", 0.0)),
+                    "dx": _n(vibration.get("dx", 0.0)),
+                    "dy": _n(vibration.get("dy", 0.0)),
+                    "dz": _n(vibration.get("dz", 0.0)),
+                    "hzx": _n(vibration.get("hzx", 0.0)),
+                    "hzy": _n(vibration.get("hzy", 0.0)),
+                    "hzz": _n(vibration.get("hzz", 0.0)),
+                    "status": "normal",
+                })
+
         message = {
             "type": "realtime_data",
             "success": True,
@@ -254,6 +264,7 @@ class ConnectionManager:
             "data": {
                 "pumps": pumps,
                 "pressure": pressure,
+                "vibrations": vibrations,
             },
         }
 

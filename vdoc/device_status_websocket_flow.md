@@ -319,3 +319,9 @@ static const int _maxReconnectInterval = 30;
 整个流程已经完整实现，可以直接测试使用！
 
 
+
+
+
+
+
+

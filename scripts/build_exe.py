@@ -92,12 +92,12 @@ def build_exe() -> None:
     exe_path = DIST_DIR / f"{APP_NAME}.exe"
     if exe_path.exists():
         print("=" * 50)
-        print(f"✅ 打包成功！")
-        print(f"📁 输出文件: {exe_path}")
+        print(f" 打包成功！")
+        print(f" 输出文件: {exe_path}")
         print(f"📏 文件大小: {exe_path.stat().st_size / 1024 / 1024:.2f} MB")
         print("=" * 50)
     else:
-        print("❌ 打包失败，请检查错误信息")
+        print(" 打包失败，请检查错误信息")
 
 
 def main() -> None:

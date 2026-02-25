@@ -38,14 +38,14 @@ for device_id, (offset, status_byte, status_word) in test_cases.items():
 # 解析
 result = parse_status_db(bytes(test_db1))
 
-print("\n📊 设备状态解析结果:")
+print("\n 设备状态解析结果:")
 print("-" * 60)
 
 for device_id in DEVICE_STATUS_MAP.keys():
     if device_id in result:
         status = result[device_id]
-        icon = "✅" if status["comm_state"] == "ok" else (
-            "⏳" if status["comm_state"] == "busy" else "❌"
+        icon = "" if status["comm_state"] == "ok" else (
+            "⏳" if status["comm_state"] == "busy" else ""
         )
         print(f"  {icon} {device_id:20} | "
               f"DONE={status['done']:1} BUSY={status['busy']:1} ERROR={status['error']:1} | "
@@ -56,7 +56,7 @@ summary = result.get("summary", {})
 print(f"📈 汇总: 总计={summary['total_devices']} | "
       f"正常={summary['ok_count']} | 错误={summary['error_count']} | "
       f"繁忙={summary['busy_count']}")
-print(f"   全部正常: {'✅ 是' if summary['all_ok'] else '❌ 否'}")
+print(f"   全部正常: {' 是' if summary['all_ok'] else ' 否'}")
 
 print("\n" + "=" * 60)
 print("测试 is_device_comm_ok() 函数")
@@ -67,4 +67,4 @@ for device_id in ["pump_meter_1", "pump_meter_2", "pump_meter_3"]:
     ok = is_device_comm_ok(status)
     print(f"  {device_id}: comm_ok = {ok}")
 
-print("\n✅ 测试完成!")
+print("\n 测试完成!")

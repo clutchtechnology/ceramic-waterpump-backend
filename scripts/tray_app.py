@@ -726,21 +726,59 @@ class TrayApp(QSystemTrayIcon):
 
     def _create_tray_icon(self, running: bool) -> QIcon:
         """创建托盘图标，根据服务状态显示不同颜色。"""
+        # 1. 加载水滴图标
+        icon_path = WORKDIR / "asserts" / "water.png"
+        if not icon_path.exists():
+            # 如果图标文件不存在，使用默认绘制方式
+            size = 64
+            pixmap = QPixmap(size, size)
+            pixmap.fill(Qt.transparent)
+            painter = QPainter(pixmap)
+            painter.setRenderHint(QPainter.Antialiasing)
+            bg_color = self.COLOR_RUNNING if running else self.COLOR_STOPPED
+            painter.setBrush(bg_color)
+            painter.setPen(Qt.NoPen)
+            painter.drawEllipse(4, 4, size - 8, size - 8)
+            painter.end()
+            return QIcon(pixmap)
+        
+        # 2. 加载原始图标
+        original_pixmap = QPixmap(str(icon_path))
+        if original_pixmap.isNull():
+            # 加载失败，使用默认图标
+            return QIcon()
+        
+        # 3. 根据服务状态调整图标颜色
         size = 64
-        pixmap = QPixmap(size, size)
-        pixmap.fill(Qt.transparent)
-        painter = QPainter(pixmap)
+        result_pixmap = QPixmap(size, size)
+        result_pixmap.fill(Qt.transparent)
+        
+        painter = QPainter(result_pixmap)
         painter.setRenderHint(QPainter.Antialiasing)
-        # 根据服务状态选择颜色
-        bg_color = self.COLOR_RUNNING if running else self.COLOR_STOPPED
-        painter.setBrush(bg_color)
-        painter.setPen(Qt.NoPen)
-        painter.drawEllipse(4, 4, size - 8, size - 8)
-        # 绘制白色水滴图案
-        painter.setBrush(QColor(255, 255, 255))
-        painter.drawEllipse(20, 18, 24, 28)
+        painter.setRenderHint(QPainter.SmoothPixmapTransform)
+        
+        # 4. 绘制原始图标
+        scaled_pixmap = original_pixmap.scaled(
+            size, size, 
+            Qt.KeepAspectRatio, 
+            Qt.SmoothTransformation
+        )
+        x = (size - scaled_pixmap.width()) // 2
+        y = (size - scaled_pixmap.height()) // 2
+        painter.drawPixmap(x, y, scaled_pixmap)
+        
+        # 5. 根据服务状态添加颜色叠加层
+        if running:
+            # 运行中：绿色叠加
+            painter.setCompositionMode(QPainter.CompositionMode_SourceAtop)
+            painter.fillRect(result_pixmap.rect(), QColor(34, 197, 94, 100))
+        else:
+            # 停止：红色叠加
+            painter.setCompositionMode(QPainter.CompositionMode_SourceAtop)
+            painter.fillRect(result_pixmap.rect(), QColor(239, 68, 68, 100))
+        
         painter.end()
-        return QIcon(pixmap)
+        return QIcon(result_pixmap)
 
     def _update_icon(self) -> None:
         """根据当前服务状态更新托盘图标。"""

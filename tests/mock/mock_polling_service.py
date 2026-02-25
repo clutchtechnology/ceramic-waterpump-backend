@@ -130,20 +130,20 @@ async def poll_mock_data():
     global _is_running
     
     print("=" * 60)
-    print("🚀 水泵房模拟轮询服务启动")
+    print(" 水泵房模拟轮询服务启动")
     print("=" * 60)
-    print(f"📊 轮询间隔: {POLL_INTERVAL}秒")
+    print(f" 轮询间隔: {POLL_INTERVAL}秒")
     print(f"📦 DB块: DB1(设备状态), DB2(传感器数据)")
     print(f"🔗 InfluxDB: {settings.influx_url}")
-    print(f"📁 Bucket: {settings.influx_bucket}")
+    print(f" Bucket: {settings.influx_bucket}")
     print("=" * 60)
     
     # 检查 InfluxDB 连接
     healthy, msg = check_influx_health()
     if healthy:
-        print(f"✅ InfluxDB 连接正常")
+        print(f" InfluxDB 连接正常")
     else:
-        print(f"⚠️ InfluxDB 连接异常: {msg}")
+        print(f" InfluxDB 连接异常: {msg}")
         print("   将继续运行，数据可能无法写入")
     
     print("=" * 60)
@@ -172,16 +172,16 @@ async def poll_mock_data():
             if db1_data:
                 status_count = process_db1_status(db1_data, timestamp)
                 total_points += status_count
-                print(f"  ✅ DB1 (状态): {status_count} 个设备")
+                print(f"   DB1 (状态): {status_count} 个设备")
             
             # 处理 DB2 传感器数据
             db2_data = all_db_data.get(2)
             if db2_data:
                 sensor_count = process_db2_sensors(db2_data, timestamp)
                 total_points += sensor_count
-                print(f"  ✅ DB2 (传感器): {sensor_count} 个数据点")
+                print(f"   DB2 (传感器): {sensor_count} 个数据点")
             
-            print(f"  📊 共写入 {total_points} 个数据点")
+            print(f"   共写入 {total_points} 个数据点")
             
             # 显示设备状态
             device_status = generator.get_device_status()
@@ -191,14 +191,14 @@ async def poll_mock_data():
             print(f"  🔴 已停止: {', '.join(stopped) if stopped else '无'}")
             
         except Exception as e:
-            print(f"  ❌ 轮询错误: {e}")
+            print(f"   轮询错误: {e}")
             import traceback
             traceback.print_exc()
         
         # 等待下次轮询
         await asyncio.sleep(POLL_INTERVAL)
     
-    print("\n✅ 模拟轮询服务已停止")
+    print("\n 模拟轮询服务已停止")
 
 
 def main():

@@ -55,6 +55,9 @@ PARAMETER_MAPPING = {
     "vib_velocity_x": {"field": "vx", "module": "VibrationSensor", "unit": "mm/s"},
     "vib_velocity_y": {"field": "vy", "module": "VibrationSensor", "unit": "mm/s"},
     "vib_velocity_z": {"field": "vz", "module": "VibrationSensor", "unit": "mm/s"},
+    "vx": {"field": "vx", "module": "VibrationSensor", "unit": "mm/s"},
+    "vy": {"field": "vy", "module": "VibrationSensor", "unit": "mm/s"},
+    "vz": {"field": "vz", "module": "VibrationSensor", "unit": "mm/s"},
     
     # 振动参数 (位移 - 聚合，使用 dx 作为代表)
     "vibration_displacement": {"field": "dx", "module": "VibrationSensor", "unit": "μm"},
@@ -63,6 +66,9 @@ PARAMETER_MAPPING = {
     "vib_displacement_x": {"field": "dx", "module": "VibrationSensor", "unit": "μm"},
     "vib_displacement_y": {"field": "dy", "module": "VibrationSensor", "unit": "μm"},
     "vib_displacement_z": {"field": "dz", "module": "VibrationSensor", "unit": "μm"},
+    "dx": {"field": "dx", "module": "VibrationSensor", "unit": "μm"},
+    "dy": {"field": "dy", "module": "VibrationSensor", "unit": "μm"},
+    "dz": {"field": "dz", "module": "VibrationSensor", "unit": "μm"},
     
     # 振动参数 (频率 - 聚合，使用 hzx 作为代表)
     "vibration_frequency": {"field": "hzx", "module": "VibrationSensor", "unit": "Hz"},
@@ -71,6 +77,9 @@ PARAMETER_MAPPING = {
     "vib_frequency_x": {"field": "hzx", "module": "VibrationSensor", "unit": "Hz"},
     "vib_frequency_y": {"field": "hzy", "module": "VibrationSensor", "unit": "Hz"},
     "vib_frequency_z": {"field": "hzz", "module": "VibrationSensor", "unit": "Hz"},
+    "hzx": {"field": "hzx", "module": "VibrationSensor", "unit": "Hz"},
+    "hzy": {"field": "hzy", "module": "VibrationSensor", "unit": "Hz"},
+    "hzz": {"field": "hzz", "module": "VibrationSensor", "unit": "Hz"},
 }
 
 
@@ -147,16 +156,25 @@ def _get_mock_base_value(parameter: str) -> tuple[float, float]:
         "vib_velocity_x": (1.0, 0.3),
         "vib_velocity_y": (0.8, 0.2),
         "vib_velocity_z": (0.6, 0.15),
+        "vx": (1.0, 0.3),
+        "vy": (0.8, 0.2),
+        "vz": (0.6, 0.15),
         
         # 三轴振动位移 (X轴最大, Y轴中等, Z轴最小)
         "vib_displacement_x": (60.0, 12.0),
         "vib_displacement_y": (50.0, 10.0),
         "vib_displacement_z": (40.0, 8.0),
+        "dx": (60.0, 12.0),
+        "dy": (50.0, 10.0),
+        "dz": (40.0, 8.0),
         
         # 三轴振动频率 (X轴最高, Y轴中等, Z轴最低)
         "vib_frequency_x": (38.0, 6.0),
         "vib_frequency_y": (35.0, 5.0),
         "vib_frequency_z": (32.0, 4.0),
+        "hzx": (38.0, 6.0),
+        "hzy": (35.0, 5.0),
+        "hzz": (32.0, 4.0),
     }
     return mock_config.get(parameter, (1.0, 0.1))
 
@@ -222,7 +240,11 @@ async def get_waterpump_history(
             raise HTTPException(status_code=400, detail="pump_id is required for non-pressure queries")
         if pump_id < 1 or pump_id > 6:
             raise HTTPException(status_code=400, detail="pump_id must be between 1 and 6")
-        device_id = f"pump_{pump_id}"
+        # 振动参数使用 vib_X 作为 device_id, 电气参数使用 pump_X
+        if param_config["module"] == "VibrationSensor":
+            device_id = f"vib_{pump_id}"
+        else:
+            device_id = f"pump_{pump_id}"
 
     # 3. 解析时间范围
     start_dt, end_dt, start_iso, stop_iso = _parse_time_range(start, end, default_hours=24)

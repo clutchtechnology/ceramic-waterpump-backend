@@ -60,14 +60,32 @@ class MockService:
         }
     
     @staticmethod
+    def generate_vibration_data(vib_id: int) -> Dict[str, Any]:
+        """生成单个振动传感器的模拟数据"""
+        # 参考料仓的振动数据生成
+        return {
+            'vx': round(random.uniform(0.5, 3.0), 2),  # 速度幅值 (mm/s)
+            'vy': round(random.uniform(0.5, 3.0), 2),
+            'vz': round(random.uniform(0.5, 3.0), 2),
+            'dx': round(random.uniform(10, 100), 1),   # 位移幅值 (um)
+            'dy': round(random.uniform(10, 100), 1),
+            'dz': round(random.uniform(10, 100), 1),
+            'hzx': round(random.uniform(30, 60), 1),   # 频率 (Hz)
+            'hzy': round(random.uniform(30, 60), 1),
+            'hzz': round(random.uniform(30, 60), 1),
+        }
+    
+    @staticmethod
     def generate_realtime_batch() -> Dict[str, Any]:
-        """生成批量实时数据（6个水泵 + 1个压力传感器）"""
+        """生成批量实时数据（6个水泵 + 1个压力传感器 + 6个振动传感器）"""
         pumps = [MockService.generate_pump_data(i) for i in range(1, 7)]
         pressure = MockService.generate_pressure_data()
+        vibrations = [MockService.generate_vibration_data(i) for i in range(1, 7)]
         
         return {
             'pumps': pumps,
             'pressure': pressure,
+            'vibrations': vibrations,
             'timestamp': datetime.now().isoformat()
         }
     

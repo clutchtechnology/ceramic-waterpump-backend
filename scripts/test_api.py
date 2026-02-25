@@ -60,7 +60,7 @@ def test_realtime():
                     for field, value in fields.items():
                         print(f"      - {field}: {value}")
             else:
-                print("  ⚠️  暂无设备数据 (确保 docker-compose up -d 已运行)")
+                print("    暂无设备数据 (确保 docker-compose up -d 已运行)")
         else:
             print(f"\n✗ HTTP {response.status_code}")
             print(f"  响应: {response.text}")

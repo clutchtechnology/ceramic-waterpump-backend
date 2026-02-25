@@ -62,10 +62,29 @@ class PressureData(BaseModel):
     )
 
 
+class VibrationData(BaseModel):
+    """振动传感器数据"""
+    device_id: str = Field(..., description="设备ID (vib_1 ~ vib_6)")
+    device_name: str = Field(..., description="设备名称")
+    vx: float = Field(default=0.0, description="X轴速度幅值 (mm/s)")
+    vy: float = Field(default=0.0, description="Y轴速度幅值 (mm/s)")
+    vz: float = Field(default=0.0, description="Z轴速度幅值 (mm/s)")
+    dx: float = Field(default=0.0, description="X轴位移幅值 (um)")
+    dy: float = Field(default=0.0, description="Y轴位移幅值 (um)")
+    dz: float = Field(default=0.0, description="Z轴位移幅值 (um)")
+    hzx: float = Field(default=0.0, description="X轴频率 (Hz)")
+    hzy: float = Field(default=0.0, description="Y轴频率 (Hz)")
+    hzz: float = Field(default=0.0, description="Z轴频率 (Hz)")
+    status: Literal["normal", "warning", "alarm", "offline"] = Field(
+        default="offline", description="状态"
+    )
+
+
 class RealtimeDataPayload(BaseModel):
     """实时数据内容"""
     pumps: List[PumpData] = Field(default_factory=list, description="6台水泵数据")
     pressure: PressureData = Field(default_factory=PressureData, description="压力表数据")
+    vibrations: List[VibrationData] = Field(default_factory=list, description="6个振动传感器数据")
 
 
 class RealtimeDataMessage(BaseModel):

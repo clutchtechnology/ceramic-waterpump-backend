@@ -568,10 +568,10 @@ logger.error("连接失败: %s", err)
 错误的注释（禁止使用）：
 
 ```python
-# 🚀 初始化 WebSocket 管理器
-# ⚠️ 注意: 这里需要设置心跳超时
-logger.info("✅ 服务启动完成")
-logger.error("❌ 连接失败: %s", err)
+#  初始化 WebSocket 管理器
+#  注意: 这里需要设置心跳超时
+logger.info(" 服务启动完成")
+logger.error(" 连接失败: %s", err)
 ```
 
 **原因**：
