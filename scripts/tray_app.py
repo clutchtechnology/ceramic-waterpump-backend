@@ -51,6 +51,21 @@ else:
     # 开发模式，使用脚本所在目录的父目录
     WORKDIR = Path(__file__).resolve().parents[1]
 
+
+def _get_resource_path(relative_path: str) -> Path:
+    """获取资源路径（支持打包后 _MEIPASS 回退）"""
+    if IS_FROZEN:
+        # 1. 优先从 exe 所在目录查找（用户可覆盖）
+        exe_path = WORKDIR / relative_path
+        if exe_path.exists():
+            return exe_path
+        # 2. 回退到 _MEIPASS（PyInstaller 内置资源）
+        meipass_path = Path(getattr(sys, '_MEIPASS', '')) / relative_path
+        if meipass_path.exists():
+            return meipass_path
+        return exe_path
+    return WORKDIR / relative_path
+
 LOG_DIR = WORKDIR / "logs"
 LOG_FILE = LOG_DIR / "server.log"
 INFLUX_LOG_FILE = LOG_DIR / "influxd.log"
@@ -727,7 +742,7 @@ class TrayApp(QSystemTrayIcon):
     def _create_tray_icon(self, running: bool) -> QIcon:
         """创建托盘图标，根据服务状态显示不同颜色。"""
         # 1. 加载水滴图标
-        icon_path = WORKDIR / "asserts" / "water.png"
+        icon_path = _get_resource_path("asserts/water.png")
         if not icon_path.exists():
             # 如果图标文件不存在，使用默认绘制方式
             size = 64

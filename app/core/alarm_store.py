@@ -114,13 +114,13 @@ def query_alarms(
     safe_level = level if level in {"warning", "alarm"} else None
     level_filter = f'  |> filter(fn: (r) => r["level"] == "{safe_level}")' if safe_level else ""
     prefix_filter = ""
+    strings_import = ""
     if param_prefix:
         safe_prefix = param_prefix.replace("\\", "\\\\").replace('"', '\\"')
         prefix_filter = f'  |> filter(fn: (r) => strings.hasPrefix(v: r["param_name"], prefix: "{safe_prefix}"))'
+        strings_import = 'import "strings"\n'
 
-        strings_import = 'import "strings"\n' if prefix_filter else ""
-
-        query = f'''
+    query = f'''
 {strings_import}from(bucket: "{settings.influx_bucket}")
   |> range(start: {start_time.isoformat()}, stop: {end_time.isoformat()})
   |> filter(fn: (r) => r["_measurement"] == "{_MEASUREMENT}")

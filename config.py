@@ -91,8 +91,9 @@ class Settings(BaseSettings):
     vib_high_precision: bool = Field(default=False, alias="VIB_HIGH_PRECISION")  # 振动传感器精度模式
 
     class Config:
-        # 使用绝对路径，确保打包后也能找到配置文件
-        env_file = str(get_app_dir() / ".env")
+        # 使用 get_resource_path 确保打包后也能找到配置文件
+        # 打包后: 优先 exe 同级目录 .env (用户可覆盖), 回退到 _MEIPASS 内置
+        env_file = str(get_resource_path(".env"))
         env_file_encoding = "utf-8"
         extra = "ignore"
         populate_by_name = True  # 允许通过别名或字段名填充
