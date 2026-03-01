@@ -13,7 +13,10 @@ import struct
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, PROJECT_ROOT)
 
-from mock_data_generator import MockDataGenerator
+try:
+    from tests.mock.mock_data_generator import MockDataGenerator
+except ImportError:
+    from mock_data_generator import MockDataGenerator
 
 
 def test_db1_status():

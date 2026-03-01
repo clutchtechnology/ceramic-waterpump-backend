@@ -173,9 +173,10 @@ def create_app() -> FastAPI:
     # 路由结构:
     #   /api/health           - 健康检查
     #   /api/status           - 系统状态
-    #   /api/history          - 历史数据
-    #   /api/config/*         - 配置管理
-    #   /api/thresholds       - 阈值管理
+    #   /api/config/server    - 服务端运行配置 (只读)
+    #   /api/thresholds       - 阈值管理 (CRUD + reset)
+    #   /api/alarms/*         - 报警管理 (records + count)
+    #   /api/waterpump/history - 历史数据
     #   /ws/realtime          - WebSocket 实时数据推送
     app.include_router(api_router, prefix="/api")
     app.include_router(ws_router, prefix="/ws")

@@ -239,35 +239,6 @@ async def _read_plc_db4() -> Tuple[bool, bytes, str]:
         return (True, bytes(all_data), "")
 
 
-def _check_and_log_alarms(cache_data: Dict[str, Any]):
-    """检测数据是否触发报警阈值（使用新的报警服务）"""
-    try:
-        alarm_service = get_alarm_service()
-        
-        # 构建实时数据格式
-        realtime_data = {
-            "pumps": [],
-            "pressure": cache_data.get("pressure", {})
-        }
-        
-        # 添加水泵数据
-        for idx in range(1, 7):
-            pump_key = f"pump_{idx}"
-            if pump_key in cache_data:
-                pump_data = cache_data[pump_key].copy()
-                pump_data["id"] = idx
-                realtime_data["pumps"].append(pump_data)
-        
-        # 检查并记录报警
-        alarms = alarm_service.check_and_record_alarms(realtime_data)
-        
-        if alarms:
-            logger.info(f"[DB2数据] 检测到 {len(alarms)} 条报警")
-    
-    except Exception as e:
-        logger.error(f"[DB2数据] 报警检测失败: {e}", exc_info=True)
-
-
 def _flush_buffer():
     """刷新缓存：批量写入 InfluxDB 或保存到本地"""
     global _data_stats
@@ -417,6 +388,13 @@ async def _data_poll_loop():
             parsed_db4 = parse_vib_db4(db4_bytes) if success_db4 else []
             
             _latest_data = _build_latest_cache(parsed_db2, parsed_db4, timestamp)
+
+            # 3.5 报警检测
+            try:
+                from app.services.alarm_checker import check_all_alarms
+                check_all_alarms(_latest_data, timestamp)
+            except Exception as e:
+                logger.error("[DB2数据] 报警检测异常: %s", e, exc_info=True)
             
             # 4. 转换并加入缓冲区
             written_count = 0

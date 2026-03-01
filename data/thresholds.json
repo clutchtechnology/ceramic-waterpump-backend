@@ -29,28 +29,28 @@
   },
   "voltage": {
     "pump_1": {
-      "normal_max": 400.0,
-      "warning_max": 420.0
+      "normal_max": 230.0,
+      "warning_max": 242.0
     },
     "pump_2": {
-      "normal_max": 400.0,
-      "warning_max": 420.0
+      "normal_max": 230.0,
+      "warning_max": 242.0
     },
     "pump_3": {
-      "normal_max": 400.0,
-      "warning_max": 420.0
+      "normal_max": 230.0,
+      "warning_max": 242.0
     },
     "pump_4": {
-      "normal_max": 400.0,
-      "warning_max": 420.0
+      "normal_max": 230.0,
+      "warning_max": 242.0
     },
     "pump_5": {
-      "normal_max": 400.0,
-      "warning_max": 420.0
+      "normal_max": 230.0,
+      "warning_max": 242.0
     },
     "pump_6": {
-      "normal_max": 400.0,
-      "warning_max": 420.0
+      "normal_max": 230.0,
+      "warning_max": 242.0
     }
   },
   "pressure": {
@@ -59,54 +59,54 @@
   },
   "speed": {
     "pump_1": {
-      "normal_max": 1450.0,
-      "warning_max": 1500.0
+      "normal_max": 3.5,
+      "warning_max": 4.5
     },
     "pump_2": {
-      "normal_max": 1450.0,
-      "warning_max": 1500.0
+      "normal_max": 3.5,
+      "warning_max": 4.5
     },
     "pump_3": {
-      "normal_max": 1450.0,
-      "warning_max": 1500.0
+      "normal_max": 3.5,
+      "warning_max": 4.5
     },
     "pump_4": {
-      "normal_max": 1450.0,
-      "warning_max": 1500.0
+      "normal_max": 3.5,
+      "warning_max": 4.5
     },
     "pump_5": {
-      "normal_max": 1450.0,
-      "warning_max": 1500.0
+      "normal_max": 3.5,
+      "warning_max": 4.5
     },
     "pump_6": {
-      "normal_max": 1450.0,
-      "warning_max": 1500.0
+      "normal_max": 3.5,
+      "warning_max": 4.5
     }
   },
   "displacement": {
     "pump_1": {
-      "normal_max": 0.5,
-      "warning_max": 1.0
+      "normal_max": 20.0,
+      "warning_max": 30.0
     },
     "pump_2": {
-      "normal_max": 0.5,
-      "warning_max": 1.0
+      "normal_max": 20.0,
+      "warning_max": 30.0
     },
     "pump_3": {
-      "normal_max": 0.5,
-      "warning_max": 1.0
+      "normal_max": 20.0,
+      "warning_max": 30.0
     },
     "pump_4": {
-      "normal_max": 0.5,
-      "warning_max": 1.0
+      "normal_max": 20.0,
+      "warning_max": 30.0
     },
     "pump_5": {
-      "normal_max": 0.5,
-      "warning_max": 1.0
+      "normal_max": 20.0,
+      "warning_max": 30.0
     },
     "pump_6": {
-      "normal_max": 0.5,
-      "warning_max": 1.0
+      "normal_max": 20.0,
+      "warning_max": 30.0
     }
   },
   "frequency": {

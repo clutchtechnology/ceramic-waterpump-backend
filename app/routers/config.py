@@ -1,81 +1,65 @@
 # ============================================================
 # 文件说明: config.py - 配置管理 API
 # ============================================================
+# 接口列表:
+# 1. GET /api/config/server  - 获取服务端运行配置 (只读)
+# ============================================================
 
 import logging
 from datetime import datetime
-from typing import Dict, Any
 from fastapi import APIRouter
 
-from app.core.threshold_store import load_thresholds, save_thresholds
+from config import get_settings
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["配置管理"])
 
 
-@router.get("/config/thresholds", summary="获取阈值配置")
-async def get_thresholds():
+@router.get("/config/server", summary="获取服务端运行配置 (只读)")
+async def get_server_config():
     """
-    获取当前阈值配置
-    
-    返回：
-    - current: 电流阈值 (6泵)
-    - power: 功率阈值 (6泵)
-    - pressure: 压力阈值 (高低)
-    - vibration: 振动阈值 (6泵)
+    返回后端 .env 中的运行配置 (只读展示用)
     """
     try:
-        config = load_thresholds()
+        s = get_settings()
         return {
             "success": True,
-            "data": config,
-            "timestamp": datetime.utcnow().isoformat() + "Z"
+            "data": {
+                "server": {
+                    "host": s.server_host,
+                    "port": s.server_port,
+                    "debug": s.debug,
+                },
+                "plc": {
+                    "ip": s.plc_ip,
+                    "rack": s.plc_rack,
+                    "slot": s.plc_slot,
+                    "timeout": s.plc_timeout,
+                    "use_mock_data": s.use_mock_data,
+                },
+                "polling": {
+                    "enable_polling": s.enable_polling,
+                    "poll_interval_db2": s.poll_interval_db2,
+                    "poll_interval_db1_3": s.poll_interval_db1_3,
+                    "poll_interval_db4": s.poll_interval_db4,
+                    "verbose_log": s.verbose_polling_log,
+                },
+                "influxdb": {
+                    "url": s.influx_url,
+                    "org": s.influx_org,
+                    "bucket": s.influx_bucket,
+                    "batch_size": s.influx_batch_size,
+                },
+                "vibration": {
+                    "high_precision": s.vib_high_precision,
+                },
+            },
+            "timestamp": datetime.utcnow().isoformat() + "Z",
         }
     except Exception as e:
-        logger.error(f"Error in get_thresholds: {e}", exc_info=True)
+        logger.error(f"Error in get_server_config: {e}", exc_info=True)
         return {
             "success": False,
             "error": str(e),
-            "timestamp": datetime.utcnow().isoformat() + "Z"
-        }
-
-
-@router.post("/config/thresholds", summary="更新阈值配置")
-async def set_thresholds(config: Dict[str, Any]):
-    """
-    更新阈值配置 (从Flutter同步)
-    
-    Body参数：
-    - current: 电流阈值
-    - power: 功率阈值
-    - pressure: 压力阈值
-    - vibration: 振动阈值
-    """
-    try:
-        existing = load_thresholds()
-        
-        for key in ["current", "power", "pressure", "vibration"]:
-            if key in config:
-                existing[key] = config[key]
-        
-        success = save_thresholds(existing)
-        
-        if success:
-            return {
-                "success": True,
-                "message": "阈值配置已更新",
-                "timestamp": datetime.utcnow().isoformat() + "Z"
-            }
-        else:
-            return {
-                "success": False,
-                "error": "保存配置失败",
-                "timestamp": datetime.utcnow().isoformat() + "Z"
-            }
-    except Exception as e:
-        logger.error(f"Error in set_thresholds: {e}", exc_info=True)
-        return {
-            "success": False,
-            "error": str(e),
-            "timestamp": datetime.utcnow().isoformat() + "Z"
+            "timestamp": datetime.utcnow().isoformat() + "Z",
         }

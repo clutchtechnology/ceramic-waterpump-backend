@@ -21,7 +21,7 @@ os.makedirs("data", exist_ok=True)
 
 # 4, 默认阈值配置
 _DEFAULT_THRESHOLDS: Dict[str, Any] = {
-    "version": 1,
+    "version": 2,
     "updated_at": None,
     # 4.1, 电流阈值 (6个泵)
     "current": {
@@ -32,7 +32,48 @@ _DEFAULT_THRESHOLDS: Dict[str, Any] = {
         "pump_5": {"normal_max": 50.0, "warning_max": 80.0},
         "pump_6": {"normal_max": 50.0, "warning_max": 80.0},
     },
-    # 4.2, 功率阈值 (6个泵)
+    # 4.2, 电压阈值 (6个泵, 相电压 220V 基准)
+    "voltage": {
+        "pump_1": {"normal_max": 230.0, "warning_max": 242.0},
+        "pump_2": {"normal_max": 230.0, "warning_max": 242.0},
+        "pump_3": {"normal_max": 230.0, "warning_max": 242.0},
+        "pump_4": {"normal_max": 230.0, "warning_max": 242.0},
+        "pump_5": {"normal_max": 230.0, "warning_max": 242.0},
+        "pump_6": {"normal_max": 230.0, "warning_max": 242.0},
+    },
+    # 4.3, 压力阈值
+    "pressure": {
+        "high_alarm": 1.0,
+        "low_alarm": 0.3,
+    },
+    # 4.4, 振动速度阈值 (mm/s)
+    "speed": {
+        "pump_1": {"normal_max": 3.5, "warning_max": 4.5},
+        "pump_2": {"normal_max": 3.5, "warning_max": 4.5},
+        "pump_3": {"normal_max": 3.5, "warning_max": 4.5},
+        "pump_4": {"normal_max": 3.5, "warning_max": 4.5},
+        "pump_5": {"normal_max": 3.5, "warning_max": 4.5},
+        "pump_6": {"normal_max": 3.5, "warning_max": 4.5},
+    },
+    # 4.5, 振动位移阈值 (um)
+    "displacement": {
+        "pump_1": {"normal_max": 20.0, "warning_max": 30.0},
+        "pump_2": {"normal_max": 20.0, "warning_max": 30.0},
+        "pump_3": {"normal_max": 20.0, "warning_max": 30.0},
+        "pump_4": {"normal_max": 20.0, "warning_max": 30.0},
+        "pump_5": {"normal_max": 20.0, "warning_max": 30.0},
+        "pump_6": {"normal_max": 20.0, "warning_max": 30.0},
+    },
+    # 4.6, 振动频率阈值 (Hz)
+    "frequency": {
+        "pump_1": {"normal_max": 50.0, "warning_max": 52.0},
+        "pump_2": {"normal_max": 50.0, "warning_max": 52.0},
+        "pump_3": {"normal_max": 50.0, "warning_max": 52.0},
+        "pump_4": {"normal_max": 50.0, "warning_max": 52.0},
+        "pump_5": {"normal_max": 50.0, "warning_max": 52.0},
+        "pump_6": {"normal_max": 50.0, "warning_max": 52.0},
+    },
+    # 4.7, 功率阈值 (6个泵)
     "power": {
         "pump_1": {"normal_max": 30.0, "warning_max": 50.0},
         "pump_2": {"normal_max": 30.0, "warning_max": 50.0},
@@ -41,12 +82,7 @@ _DEFAULT_THRESHOLDS: Dict[str, Any] = {
         "pump_5": {"normal_max": 30.0, "warning_max": 50.0},
         "pump_6": {"normal_max": 30.0, "warning_max": 50.0},
     },
-    # 4.3, 压力阈值
-    "pressure": {
-        "high_alarm": 1.0,
-        "low_alarm": 0.3,
-    },
-    # 4.4, 振动阈值 (6个泵)
+    # 4.8, 振动综合阈值 (6个泵, 兼容旧版)
     "vibration": {
         "pump_1": {"normal_max": 1.0, "warning_max": 1.5},
         "pump_2": {"normal_max": 1.0, "warning_max": 1.5},
@@ -131,7 +167,7 @@ def get_pump_threshold(pump_id: int, param_type: str) -> Optional[Dict[str, floa
     # 7.1, 参数验证
     if not (1 <= pump_id <= 6):
         return None
-    if param_type not in ("current", "power", "vibration"):
+    if param_type not in ("current", "voltage", "power", "speed", "displacement", "frequency", "vibration"):
         return None
     
     config = load_thresholds()
@@ -148,46 +184,4 @@ def get_pressure_threshold() -> Dict[str, float]:
     return config.get("pressure", {"high_alarm": 1.0, "low_alarm": 0.3})
 
 
-def check_alarm(pump_id: int, param_type: str, value: float) -> Optional[str]:
-    """
-    9, 检查是否触发报警
-    
-    Args:
-        pump_id: 泵编号 (1-6)
-        param_type: 参数类型 (current/power/vibration)
-        value: 当前值
-    
-    Returns:
-        None: 正常
-        "warning": 警告
-        "alarm": 报警
-    """
-    threshold = get_pump_threshold(pump_id, param_type)
-    if threshold is None:
-        return None
-    
-    # 9.1, 按阈值判断报警级别
-    if value > threshold["warning_max"]:
-        return "alarm"
-    elif value > threshold["normal_max"]:
-        return "warning"
-    return None
 
-
-def check_pressure_alarm(value: float) -> Optional[str]:
-    """
-    10, 检查压力报警
-    
-    Returns:
-        None: 正常
-        "alarm_high": 高压报警
-        "alarm_low": 低压报警
-    """
-    threshold = get_pressure_threshold()
-    
-    # 10.1, 压力双向报警判断
-    if value > threshold["high_alarm"]:
-        return "alarm_high"
-    elif value < threshold["low_alarm"]:
-        return "alarm_low"
-    return None

@@ -24,15 +24,21 @@ class MockDataGenerator:
         # 基础值 (用于模拟真实波动)
         self._base_values = {
             # 6个水泵电表基础值（原始 PLC 值，需要经过转换器缩放）
-            'pump_voltage': [380.0, 380.0, 380.0, 380.0, 380.0, 380.0],  # 原始值，转换器会 × 0.1
-            'pump_current': [15.0, 18.0, 12.0, 20.0, 16.0, 14.0],  # 原始值，转换器会 × 0.001 × 20
-            'pump_power': [4250.0, 5100.0, 3400.0, 6000.0, 4750.0, 4000.0],  # 原始值，转换器会 × 0.0001 × 20 = 8.5-12.0 kW
-            'pump_energy': [1250.0, 1580.0, 980.0, 2100.0, 1420.0, 1180.0],  # 原始值，转换器会 × 20
+            # 相电压原始值: 转换器 ×0.1 后 = 实际相电压 (V)
+            # 报警阈值: normal_max=230V, warning_max=242V
+            # 部分泵基准偏高 (2350→235V)，波动 ±8% 最大可达 253V 触发报警
+            'pump_voltage': [2200.0, 2350.0, 2200.0, 2400.0, 2350.0, 2200.0],
+            'pump_current': [2500.0, 3000.0, 2800.0, 4200.0, 3500.0, 2600.0],  # 原始值，转换器会 x 0.001 x 20 -> 50~84A
+            'pump_power': [4250.0, 5100.0, 3400.0, 6000.0, 4750.0, 4000.0],  # 原始值，转换器会 x 2 = 8.5-12.0 kW
+            'pump_energy': [1250.0, 1580.0, 980.0, 2100.0, 1420.0, 1180.0],  # 原始值，转换器会 x 2
             
             # 压力传感器基础值
             'pressure': 0.45,  # MPa (出水压力，典型值 0.3-0.6 MPa)
-            # 振动传感器基础值 (mm/s)
-            'vibration': [0.6, 0.7, 0.5, 0.8, 0.65, 0.55],
+            # 振动速度基础值 (mm/s, 工业水泵正常范围 1-4 mm/s, 报警阈值 4.5)
+            'vibration': [2.8, 3.2, 2.5, 4.0, 3.5, 2.6],
+            # 振动位移基础值 (um, 工业水泵正常范围 10-25 um, 报警阈值 30)
+            # 位移与速度是独立物理量，不能从速度推导
+            'displacement': [15.0, 20.0, 12.0, 28.0, 22.0, 16.0],
         }
         
         # 时间累计值 (用于生成连续变化的数据)
@@ -153,10 +159,17 @@ class MockDataGenerator:
                 continue
             
             base_v = self._base_values['vibration'][idx] * self._load_factor[idx]
-            # 振动波动 ±35% (周期约10秒，支持小数变化)
-            vib_vx = self._add_sine_wave(base_v, amplitude=0.35, period=2)
-            vib_vy = self._add_sine_wave(base_v * 0.9, amplitude=0.35, period=2)
-            vib_vz = self._add_sine_wave(base_v * 1.1, amplitude=0.35, period=2)
+            # 振动速度波动 ±35% (周期约1分钟)
+            vib_vx = self._add_sine_wave(base_v, amplitude=0.35, period=12)
+            vib_vy = self._add_sine_wave(base_v * 0.9, amplitude=0.35, period=12)
+            vib_vz = self._add_sine_wave(base_v * 1.1, amplitude=0.35, period=12)
+            
+            # 振动位移 (独立物理量，不从速度推导)
+            base_d = self._base_values['displacement'][idx] * self._load_factor[idx]
+            dis_x = self._add_sine_wave(base_d, amplitude=0.30, period=3)
+            dis_y = self._add_sine_wave(base_d * 0.9, amplitude=0.30, period=3)
+            dis_z = self._add_sine_wave(base_d * 1.1, amplitude=0.30, period=3)
+            
             # 频率波动 ±5 Hz (支持小数)
             freq_x = 50.0 + random.uniform(-5, 5)
             freq_y = 50.0 + random.uniform(-5, 5)
@@ -189,10 +202,11 @@ class MockDataGenerator:
             _write_int(22, 0)
             _write_int(24, temp * 10)  # 温度放大10倍保留小数
             
-            # 5. dis_f (位移) - offset 26, 28, 30 (放大10倍保留小数，单位 μm)
-            _write_int(26, vib_vx * 1000 * 10)
-            _write_int(28, vib_vy * 1000 * 10)
-            _write_int(30, vib_vz * 1000 * 10)
+            # 5. dis_f (位移) - offset 26, 28, 30 (放大10倍保留小数，单位 um)
+            # 位移使用独立基准值，转换器除以10得到实际um值
+            _write_int(26, dis_x * 10)
+            _write_int(28, dis_y * 10)
+            _write_int(30, dis_z * 10)
             
             # 6. freq (频率) - offset 32, 34, 36 (放大10倍保留小数)
             _write_int(32, freq_x * 10)
@@ -261,15 +275,16 @@ class MockDataGenerator:
                 base_e = self._base_values['pump_energy'][idx]
                 
                 # 添加波动 (增大幅度使变化更明显)
-                # 电压波动 ±5% (周期约10秒，更快更明显)
-                line_voltage = self._add_sine_wave(base_v, amplitude=0.05, period=2)
-                phase_voltage = line_voltage / 1.732
+                # 电压波动 ±8% (周期约1分钟，period=12 使正弦波有效)
+                # base_v 是相电压原始值 (转换器 ×0.1 后 = 实际相电压)
+                phase_voltage = self._add_sine_wave(base_v, amplitude=0.08, period=12)
+                line_voltage = phase_voltage * 1.732  # 线电压 = 相电压 × √3
                 
-                # 电流波动 ±30% (周期约10秒，更快更明显)
-                current = self._add_sine_wave(base_i, amplitude=0.30, period=2)
+                # 电流波动 ±30% (周期约1分钟)
+                current = self._add_sine_wave(base_i, amplitude=0.30, period=12)
                 
-                # 功率波动 ±25% (周期约10秒，更快更明显)
-                power = self._add_sine_wave(base_p, amplitude=0.25, period=2)
+                # 功率波动 ±25% (周期约1分钟)
+                power = self._add_sine_wave(base_p, amplitude=0.25, period=12)
                 
                 # 累计能耗 (每5秒增加)
                 self._energy_accumulator[idx] += abs(power) * (5 / 3600)
@@ -300,11 +315,11 @@ class MockDataGenerator:
                 data[offset + i*4 : offset + i*4 + 4] = struct.pack(">f", val)
         
         # 压力传感器 (偏移 336, 2字节)
-        # 压力波动 ±25% (周期约10秒)，模拟用水量变化，更快更明显
+        # 压力波动 ±25% (周期约1分钟)
         pressure = self._add_sine_wave(
             self._base_values['pressure'],
             amplitude=0.25,
-            period=2
+            period=12
         )
         # 添加随机扰动
         pressure += random.uniform(-0.03, 0.03)
@@ -323,10 +338,17 @@ class MockDataGenerator:
                 continue
                 
             base_v = self._base_values['vibration'][idx] * self._load_factor[idx]
-            # 振动波动 ±35% (周期约10秒，更快更明显)
-            vib_vx = self._add_sine_wave(base_v, amplitude=0.35, period=2)
-            vib_vy = self._add_sine_wave(base_v * 0.9, amplitude=0.35, period=2)
-            vib_vz = self._add_sine_wave(base_v * 1.1, amplitude=0.35, period=2)
+            # 振动速度波动 ±35% (周期约1分钟)
+            vib_vx = self._add_sine_wave(base_v, amplitude=0.35, period=12)
+            vib_vy = self._add_sine_wave(base_v * 0.9, amplitude=0.35, period=12)
+            vib_vz = self._add_sine_wave(base_v * 1.1, amplitude=0.35, period=12)
+            
+            # 振动位移 (独立物理量)
+            base_d = self._base_values['displacement'][idx] * self._load_factor[idx]
+            dis_x = self._add_sine_wave(base_d, amplitude=0.30, period=3)
+            dis_y = self._add_sine_wave(base_d * 0.9, amplitude=0.30, period=3)
+            dis_z = self._add_sine_wave(base_d * 1.1, amplitude=0.30, period=3)
+            
             freq = 50.0 + random.uniform(-5, 5)
 
             def _write_word(offset: int, value: float, scale: float):
@@ -338,10 +360,11 @@ class MockDataGenerator:
             _write_word(14, vib_vy, 1.0)
             _write_word(16, vib_vz, 1.0)
 
-            # 位移幅值 (μm) DX/DY/DZ - offset 26, 28, 30
-            _write_word(26, vib_vx * 1000, 1.0)
-            _write_word(28, vib_vy * 1000, 1.0)
-            _write_word(30, vib_vz * 1000, 1.0)
+            # 位移幅值 (um) DX/DY/DZ - offset 26, 28, 30
+            # 位移使用独立基准值，不从速度推导
+            _write_word(26, dis_x, 1.0)
+            _write_word(28, dis_y, 1.0)
+            _write_word(30, dis_z, 1.0)
 
             # 频率 (Hz) HZX/HZY/HZZ - offset 32, 34, 36
             _write_word(32, freq, 1.0)

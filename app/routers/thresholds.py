@@ -11,7 +11,7 @@ from app.services.threshold_service import get_threshold_service
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/thresholds", tags=["阈值管理"])
+router = APIRouter(prefix="/thresholds", tags=["阈值管理"])
 
 
 class ThresholdUpdateRequest(BaseModel):

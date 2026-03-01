@@ -1,12 +1,13 @@
-"""
-阈值管理服务
-功能：
-1. 加载和保存阈值配置（thresholds.json）
-2. 提供阈值查询接口
-3. 验证阈值配置的合法性
-"""
+# ============================================================
+# 文件说明: threshold_service.py - 阈值管理服务 (JSON 存储)
+# ============================================================
+# 方法列表:
+# 1. get_all_thresholds()  - 获取全部阈值
+# 2. get_threshold()       - 获取指定参数阈值
+# 3. update_thresholds()   - 更新阈值 (含校验)
+# 4. reset_to_default()    - 恢复默认阈值
+# ============================================================
 import json
-import os
 from datetime import datetime
 from typing import Dict, Any, Optional
 from pathlib import Path
@@ -14,13 +15,12 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+
 class ThresholdService:
     """阈值管理服务"""
-    
-    # 阈值配置文件路径
+
     THRESHOLD_FILE = Path(__file__).parent.parent.parent / "data" / "thresholds.json"
-    
-    # 默认阈值配置
+
     DEFAULT_THRESHOLDS = {
         "version": 2,
         "updated_at": datetime.now().isoformat(),
@@ -29,7 +29,7 @@ class ThresholdService:
             for i in range(1, 7)
         },
         "voltage": {
-            f"pump_{i}": {"normal_max": 400.0, "warning_max": 420.0}
+            f"pump_{i}": {"normal_max": 230.0, "warning_max": 242.0}
             for i in range(1, 7)
         },
         "pressure": {
@@ -37,11 +37,11 @@ class ThresholdService:
             "low_alarm": 0.3
         },
         "speed": {
-            f"pump_{i}": {"normal_max": 1450.0, "warning_max": 1500.0}
+            f"pump_{i}": {"normal_max": 3.5, "warning_max": 4.5}
             for i in range(1, 7)
         },
         "displacement": {
-            f"pump_{i}": {"normal_max": 0.5, "warning_max": 1.0}
+            f"pump_{i}": {"normal_max": 20.0, "warning_max": 30.0}
             for i in range(1, 7)
         },
         "frequency": {
@@ -51,12 +51,13 @@ class ThresholdService:
     }
     
     def __init__(self):
-        """初始化阈值服务"""
         self._thresholds: Dict[str, Any] = {}
         self._load_thresholds()
-    
+
+    # --------------------------------------------------------
+    # 内部: 加载 / 保存
+    # --------------------------------------------------------
     def _load_thresholds(self) -> None:
-        """从文件加载阈值配置"""
         try:
             if self.THRESHOLD_FILE.exists():
                 with open(self.THRESHOLD_FILE, 'r', encoding='utf-8') as f:
@@ -71,7 +72,6 @@ class ThresholdService:
             self._thresholds = self.DEFAULT_THRESHOLDS.copy()
     
     def _save_thresholds(self) -> bool:
-        """保存阈值配置到文件"""
         try:
             # 确保目录存在
             self.THRESHOLD_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -89,21 +89,18 @@ class ThresholdService:
             logger.error(f"保存阈值配置失败: {e}")
             return False
     
+    # --------------------------------------------------------
+    # 1. get_all_thresholds() - 获取全部阈值
+    # --------------------------------------------------------
     def get_all_thresholds(self) -> Dict[str, Any]:
-        """获取所有阈值配置"""
         return self._thresholds.copy()
-    
+
+    # --------------------------------------------------------
+    # 2. get_threshold() - 获取指定参数阈值
+    #    param_type: current/voltage/pressure/speed/displacement/frequency
+    #    pump_id: 1-6 (压力不需要)
+    # --------------------------------------------------------
     def get_threshold(self, param_type: str, pump_id: Optional[int] = None) -> Optional[Dict[str, float]]:
-        """
-        获取指定参数的阈值
-        
-        Args:
-            param_type: 参数类型 (current, voltage, pressure, speed, displacement, frequency)
-            pump_id: 水泵编号 (1-6)，压力阈值不需要此参数
-        
-        Returns:
-            阈值配置字典，如 {"normal_max": 50.0, "warning_max": 80.0}
-        """
         if param_type not in self._thresholds:
             return None
         
@@ -116,16 +113,10 @@ class ThresholdService:
         pump_key = f"pump_{pump_id}"
         return self._thresholds[param_type].get(pump_key)
     
+    # --------------------------------------------------------
+    # 3. update_thresholds() - 更新阈值 (含校验)
+    # --------------------------------------------------------
     def update_thresholds(self, new_thresholds: Dict[str, Any]) -> bool:
-        """
-        更新阈值配置
-        
-        Args:
-            new_thresholds: 新的阈值配置（前端传来的格式）
-        
-        Returns:
-            是否更新成功
-        """
         try:
             # 验证配置格式
             if not self._validate_thresholds(new_thresholds):
@@ -148,15 +139,6 @@ class ThresholdService:
             return False
     
     def _validate_thresholds(self, thresholds: Dict[str, Any]) -> bool:
-        """
-        验证阈值配置的合法性
-        
-        Args:
-            thresholds: 待验证的阈值配置
-        
-        Returns:
-            是否合法
-        """
         try:
             # 验证水泵参数阈值
             for param_type in ["current", "voltage", "speed", "displacement", "frequency"]:
@@ -212,8 +194,10 @@ class ThresholdService:
             logger.error(f"验证阈值配置时出错: {e}")
             return False
     
+    # --------------------------------------------------------
+    # 4. reset_to_default() - 恢复默认阈值
+    # --------------------------------------------------------
     def reset_to_default(self) -> bool:
-        """重置为默认阈值配置"""
         try:
             self._thresholds = self.DEFAULT_THRESHOLDS.copy()
             return self._save_thresholds()
@@ -224,6 +208,7 @@ class ThresholdService:
 
 # 全局单例
 _threshold_service: Optional[ThresholdService] = None
+
 
 def get_threshold_service() -> ThresholdService:
     """获取阈值服务单例"""

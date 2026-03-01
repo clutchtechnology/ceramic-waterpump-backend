@@ -7,8 +7,6 @@ import random
 from datetime import datetime
 from typing import Dict, Any
 
-from app.core.threshold_store import check_alarm, check_pressure_alarm, get_pump_threshold, get_pressure_threshold
-
 logger = logging.getLogger(__name__)
 
 
