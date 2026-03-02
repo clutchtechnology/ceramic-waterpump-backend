@@ -2,7 +2,7 @@
 # 文件说明: parser_data_db2.py - DB2 数据块解析器
 # ============================================================
 # 功能: 解析 DB2 (Data_DB) 传感器实际数据
-# 包含: 6个电表 + 1个压力表 + 6个振动传感器
+# 包含: 6个电表 + 1个压力表 (338字节, 振动在DB4)
 # ============================================================
 
 from typing import Dict, Any
@@ -15,10 +15,11 @@ from app.plc.config_manager import PLCConfigManager
 class DataDB2Parser:
     """DB2 数据块模块化解析器
     
-    解析 DB2 (Data_DB) 中的传感器数据:
-    - 6 个电表 (ElectricityMeter)
-    - 1 个压力表 (PressureSensor)
-    - 6 个振动传感器 (VibrationSensor)
+    解析 DB2 (Data_DB) 中的传感器数据 (338字节):
+    - 6 个电表 (ElectricityMeter, 6x56=336字节)
+    - 1 个压力表 (PressureSensor, 2字节)
+    
+    振动传感器在 DB4 (228字节), 由 VibDB4Parser 解析
     """
 
     def __init__(self, device_config: str = "configs/config_waterpump_db2.yaml", module_config: str = "configs/plc_modules.yaml"):
@@ -35,7 +36,7 @@ class DataDB2Parser:
         """解析 DB2 数据块
         
         Args:
-            raw_bytes: DB2 原始字节数据 (1034 字节)
+            raw_bytes: DB2 原始字节数据 (338 字节: 6电表 + 1压力)
             timestamp: 时间戳 (可选)
         
         Returns:

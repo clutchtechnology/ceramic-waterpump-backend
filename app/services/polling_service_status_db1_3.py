@@ -93,13 +93,15 @@ async def _read_plc_db1() -> Tuple[bool, bytes, str]:
 
 
 async def _read_plc_db3() -> Tuple[bool, bytes, str]:
-    """读取 PLC DB3 从站状态块
+    """读取 PLC DB3 从站状态块 (19个设备, 76字节)
+    
+    注意: PLC DB3 实际只有 76 字节, VIB_6 状态不在 DB3 中
     
     Returns:
         (成功标志, 原始字节数据, 错误信息)
     """
     DB_NUMBER = 3
-    DB_SIZE = 80
+    DB_SIZE = 76  # PLC 实际大小 (19个设备x4字节)
 
     if settings.use_mock_data:
         generator = _get_mock_generator()

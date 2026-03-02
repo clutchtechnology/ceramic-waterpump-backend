@@ -26,7 +26,7 @@ db_mappings:
   # ============================================================
   - db_number: 3
     db_name: "DataState"
-    total_size: 80
+    total_size: 76
     config_file: "configs/status_waterpump_db3.yaml"
     parser_class: "StatusWaterpumpParser"
     enabled: true

@@ -1,16 +1,15 @@
-"""
-InfluxDB 核心模块 - 数据写入与查询
-奥卡姆剃刀: 单例 Client + 复用 WriteAPI
-"""
+"""InfluxDB 核心模块 - 数据写入与查询"""
 from influxdb_client import InfluxDBClient, Point
 from influxdb_client.client.write_api import SYNCHRONOUS
 from typing import Dict, Any, Optional, List, Tuple
 from datetime import datetime, timezone
 import threading
 import atexit
+import logging
 
 from config import get_settings
 
+logger = logging.getLogger(__name__)
 settings = get_settings()
 
 # 1, 模块级单例: Client + WriteAPI + 写入锁
@@ -37,7 +36,7 @@ def _get_or_create_client() -> Tuple[InfluxDBClient, Any]:
                 org=settings.influx_org
             )
             _write_api = _client.write_api(write_options=SYNCHRONOUS)
-            print(f"[OK] InfluxDB Client 已创建: {settings.influx_url}")
+            logger.info(f"[InfluxDB] Client 已创建: {settings.influx_url}")
     
     return _client, _write_api
 
@@ -65,7 +64,7 @@ def close_influx_client() -> None:
         if _client is not None:
             try:
                 _client.close()
-                print("[OK] InfluxDB Client 已关闭")
+                logger.info("[InfluxDB] Client 已关闭")
             except Exception:
                 pass
             _client = None
@@ -124,7 +123,7 @@ def write_point(
             )
         return True
     except Exception as e:
-        print(f"[ERROR] InfluxDB 写入失败: {e}")
+        logger.error(f"[InfluxDB] 写入失败: {e}", exc_info=True)
         return False
 
 
@@ -270,6 +269,6 @@ def query_data(
                 })
         return data
     except Exception as e:
-        print(f"[ERROR] InfluxDB 查询失败: {e}")
+        logger.error(f"[InfluxDB] 查询失败: {e}\n  Flux query:\n{query}", exc_info=True)
         return []
 

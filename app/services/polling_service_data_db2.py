@@ -5,8 +5,7 @@
 #   1. 读取 DB2 数据块 (6电表 + 1压力)
 #   2. 读取 DB4 数据块 (6振动传感器)
 #   3. 解析和转换传感器数据
-#   4. 批量写入 InfluxDB
-#   5. 本地缓存降级 (InfluxDB 故障时)
+#   4. 批量写入 InfluxDB (失败时丢弃数据)
 # ============================================================
 
 import asyncio
@@ -18,7 +17,6 @@ from collections import deque
 
 from config import get_settings
 from app.core.influxdb import build_point, write_points_batch, check_influx_health
-from app.core.local_cache import get_local_cache, CachedPoint
 from app.plc.plc_manager import get_plc_manager
 from app.tools.converter_elec import ElectricityConverter
 from app.tools.converter_pressure import PressureConverter
@@ -35,7 +33,6 @@ _mock_generator_loaded = False
 
 # 服务状态
 _data_poll_task: Optional[asyncio.Task] = None
-_data_retry_task: Optional[asyncio.Task] = None
 _is_data_running = False
 
 # 转换器实例
@@ -55,10 +52,8 @@ _data_stats = {
     "total_polls": 0,
     "successful_writes": 0,
     "failed_writes": 0,
-    "cached_points": 0,
-    "retry_success": 0,
-    "last_write_time": None,
-    "last_retry_time": None
+    "discarded_points": 0,
+    "last_write_time": None
 }
 
 
@@ -163,13 +158,15 @@ def _build_latest_cache(parsed_db2: Dict[str, Any], parsed_db4: list, timestamp:
 
 
 async def _read_plc_db2() -> Tuple[bool, bytes, str]:
-    """读取 PLC DB2 数据块（支持分块读取）
+    """读取 PLC DB2 数据块 (6电表 + 1压力, 共338字节)
+    
+    注意: 振动传感器在 DB4 中, 不在 DB2
     
     Returns:
         (成功标志, 原始字节数据, 错误信息)
     """
     DB_NUMBER = 2
-    DB_SIZE = 1034
+    DB_SIZE = 338  # 6电表(6x56=336) + 1压力(2) = 338
     MAX_READ_SIZE = 200  # PLC 单次读取最大字节数（保守值）
     
     if settings.use_mock_data:
@@ -240,7 +237,7 @@ async def _read_plc_db4() -> Tuple[bool, bytes, str]:
 
 
 def _flush_buffer():
-    """刷新缓存：批量写入 InfluxDB 或保存到本地"""
+    """刷新缓存：批量写入 InfluxDB，失败时丢弃数据"""
     global _data_stats
     
     if len(_point_buffer) == 0:
@@ -260,89 +257,13 @@ def _flush_buffer():
             if not settings.verbose_polling_log:
                 logger.info(f"[DB2数据] 批量写入 {len(points)} 个数据点到 InfluxDB")
         else:
-            logger.error(f"[DB2数据] InfluxDB 写入失败: {err}，转存到本地缓存")
-            _save_to_local_cache(points)
+            _data_stats["failed_writes"] += len(points)
+            _data_stats["discarded_points"] += len(points)
+            logger.error(f"[DB2数据] InfluxDB 写入失败: {err}，丢弃 {len(points)} 个数据点")
     else:
-        logger.warning(f"[DB2数据] InfluxDB 不可用 ({msg})，数据写入本地缓存")
-        _save_to_local_cache(points)
-
-
-def _save_to_local_cache(points: List):
-    """保存数据点到本地 SQLite 缓存"""
-    global _data_stats
-    
-    cache = get_local_cache()
-    cached_points = []
-    
-    for point in points:
-        cached_point = CachedPoint(
-            measurement=point._name,
-            tags={k: v for k, v in point._tags.items()},
-            fields={k: v for k, v in point._fields.items()},
-            timestamp=point._time.isoformat() if point._time else datetime.now(timezone.utc).isoformat()
-        )
-        cached_points.append(cached_point)
-    
-    saved_count = cache.save_points(cached_points)
-    _data_stats["cached_points"] += saved_count
-    _data_stats["failed_writes"] += len(points)
-    
-    logger.info(f"[DB2数据] 已保存 {saved_count} 个数据点到本地缓存")
-
-
-async def _retry_cached_data():
-    """定期重试本地缓存的数据"""
-    global _data_stats
-    
-    cache = get_local_cache()
-    retry_interval = 60
-    
-    while _is_data_running:
-        await asyncio.sleep(retry_interval)
-        
-        healthy, _ = check_influx_health()
-        if not healthy:
-            continue
-        
-        pending = cache.get_pending_points(limit=100, max_retry=5)
-        
-        if not pending:
-            # 定期清理过期缓存，防止数据库无限增长
-            cache.cleanup_old(days=7)
-            continue
-        
-        logger.info(f"[DB2数据] 开始重试 {len(pending)} 条缓存数据...")
-        
-        points = []
-        ids = []
-        
-        for point_id, cached_point in pending:
-            try:
-                point = build_point(
-                    cached_point.measurement,
-                    cached_point.tags,
-                    cached_point.fields,
-                    datetime.fromisoformat(cached_point.timestamp)
-                )
-                if point:
-                    points.append(point)
-                    ids.append(point_id)
-            except Exception as e:
-                logger.warning(f"[DB2数据] 重建 Point 失败: {e}")
-        
-        if not points:
-            continue
-        
-        success, err = write_points_batch(points)
-        
-        if success:
-            cache.mark_success(ids)
-            _data_stats["retry_success"] += len(points)
-            _data_stats["last_retry_time"] = datetime.now(timezone.utc).isoformat()
-            logger.info(f"[DB2数据] 重试成功: {len(points)} 条数据已写入 InfluxDB")
-        else:
-            cache.mark_retry(ids)
-            logger.error(f"[DB2数据] 重试失败: {err}")
+        _data_stats["failed_writes"] += len(points)
+        _data_stats["discarded_points"] += len(points)
+        logger.warning(f"[DB2数据] InfluxDB 不可用 ({msg})，丢弃 {len(points)} 个数据点")
 
 
 async def _data_poll_loop():
@@ -451,11 +372,9 @@ async def _data_poll_loop():
             
             # 5. 日志输出
             if settings.verbose_polling_log or poll_count % 10 == 0:
-                cache_stats = get_local_cache().get_stats()
                 logger.debug(f"[DB2数据 poll #{poll_count}] "
                       f"写入={written_count} | "
-                      f"缓冲区={len(_point_buffer)}/{_batch_size} | "
-                      f"待写入={cache_stats['pending_count']}")
+                      f"缓冲区={len(_point_buffer)}/{_batch_size}")
         
         except Exception as e:
             consecutive_failures += 1
@@ -477,7 +396,7 @@ def _task_exception_handler(task: asyncio.Task):
 
 async def start_data_polling():
     """启动 DB2 数据轮询服务"""
-    global _data_poll_task, _data_retry_task, _is_data_running
+    global _data_poll_task, _is_data_running
     
     if _is_data_running:
         logger.warning("[DB2数据] 轮询服务已在运行")
@@ -498,32 +417,27 @@ async def start_data_polling():
     _data_poll_task = asyncio.create_task(_data_poll_loop(), name="data_poll_loop")
     _data_poll_task.add_done_callback(_task_exception_handler)
     
-    _data_retry_task = asyncio.create_task(_retry_cached_data(), name="data_retry")
-    _data_retry_task.add_done_callback(_task_exception_handler)
-    
     mode_str = "Mock" if settings.use_mock_data else "PLC"
     logger.info(f"[DB2数据] 轮询服务已启动 ({mode_str}模式, 间隔: {settings.poll_interval_db2}s)")
 
 
 async def stop_data_polling():
     """停止 DB2 数据轮询服务"""
-    global _data_poll_task, _data_retry_task, _is_data_running
+    global _data_poll_task, _is_data_running
     
     _is_data_running = False
     
     logger.info("[DB2数据] 正在刷新缓冲区...")
     _flush_buffer()
     
-    for task in [_data_poll_task, _data_retry_task]:
-        if task:
-            task.cancel()
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
+    if _data_poll_task:
+        _data_poll_task.cancel()
+        try:
+            await _data_poll_task
+        except asyncio.CancelledError:
+            pass
     
     _data_poll_task = None
-    _data_retry_task = None
     
     logger.info("[DB2数据] 轮询服务已停止")
 
@@ -540,12 +454,9 @@ def is_data_polling_running() -> bool:
 
 def get_data_polling_stats() -> Dict[str, Any]:
     """获取数据轮询统计信息"""
-    cache_stats = get_local_cache().get_stats()
-    
     return {
         **_data_stats,
         "buffer_size": len(_point_buffer),
         "batch_size": _batch_size,
-        "cache_stats": cache_stats,
     }
 

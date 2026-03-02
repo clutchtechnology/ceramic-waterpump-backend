@@ -47,7 +47,7 @@ def parse_status_db3(raw_bytes: bytes, only_enabled: bool = True) -> Dict[str, A
     """解析 DB3 (DataState) 从站状态
     
     Args:
-        raw_bytes: DB3 原始字节数据 (80 字节)
+        raw_bytes: DB3 原始字节数据 (76 字节, 19个设备)
         only_enabled: 是否只解析启用的设备
     
     Returns:

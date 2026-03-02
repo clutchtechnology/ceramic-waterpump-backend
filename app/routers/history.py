@@ -27,6 +27,129 @@ settings = get_settings()
 BEIJING_TZ = timezone(timedelta(hours=8))
 
 
+def _summarize_raw_records(raw_data: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """汇总 Influx 原始记录，便于排查字段/标签过滤问题。"""
+    fields = set()
+    module_types = set()
+    device_ids = set()
+
+    for record in raw_data:
+        field = record.get("field")
+        module_type = record.get("module_type")
+        device_id = record.get("device_id")
+        if field:
+            fields.add(str(field))
+        if module_type:
+            module_types.add(str(module_type))
+        if device_id:
+            device_ids.add(str(device_id))
+
+    return {
+        "raw_count": len(raw_data),
+        "fields": sorted(fields),
+        "module_types": sorted(module_types),
+        "device_ids": sorted(device_ids),
+    }
+
+
+def _log_empty_data_hint(
+    *,
+    parameter: str,
+    pump_id: Optional[int],
+    device_id: str,
+    start_iso: str,
+    stop_iso: str,
+    interval: str,
+    target_field: str,
+    target_module: str,
+    raw_summary: Dict[str, Any],
+):
+    """空数据时输出可执行的定位建议。"""
+
+    # 场景 1: 字段不匹配（同标签下有数据，但目标字段不存在）
+    if raw_summary["raw_count"] > 0 and target_field not in raw_summary["fields"]:
+        logger.warning(
+            "[HistoryQuery][Hint][FieldMismatch] parameter=%s pump_id=%s device_id=%s target_field=%s available_fields=%s suggestion=检查 PARAMETER_MAPPING 字段映射或写库字段名",
+            parameter,
+            pump_id,
+            device_id,
+            target_field,
+            raw_summary["fields"],
+        )
+        return
+
+    # 仅在 raw_count=0 时做额外探测，避免增加常规请求开销
+    if raw_summary["raw_count"] != 0:
+        return
+
+    try:
+        # 探测 A: 同 device_id + 时间窗口，去掉 module_type 标签过滤
+        probe_device_all = query_data(
+            measurement="sensor_data",
+            start_iso=start_iso,
+            stop_iso=stop_iso,
+            interval=interval,
+            device_id=device_id,
+            tags=None,
+        )
+        probe_device_summary = _summarize_raw_records(probe_device_all)
+
+        if probe_device_summary["raw_count"] > 0:
+            logger.warning(
+                "[HistoryQuery][Hint][TagMismatch] parameter=%s pump_id=%s device_id=%s target_module=%s available_modules=%s available_fields=%s suggestion=检查 module_type 标签值是否一致（如 ElectricityMeter/PressureSensor/VibrationSensor）",
+                parameter,
+                pump_id,
+                device_id,
+                target_module,
+                probe_device_summary["module_types"],
+                probe_device_summary["fields"],
+            )
+            return
+
+        # 探测 B: 同时间窗口全量数据（不带 device/tag）
+        probe_window_all = query_data(
+            measurement="sensor_data",
+            start_iso=start_iso,
+            stop_iso=stop_iso,
+            interval=interval,
+            device_id=None,
+            tags=None,
+        )
+        probe_window_summary = _summarize_raw_records(probe_window_all)
+
+        if probe_window_summary["raw_count"] > 0:
+            logger.warning(
+                "[HistoryQuery][Hint][TagMismatch] parameter=%s pump_id=%s device_id=%s target_module=%s window_device_ids=%s suggestion=检查 device_id 命名是否一致（pump_x/vib_x/pressure）",
+                parameter,
+                pump_id,
+                device_id,
+                target_module,
+                probe_window_summary["device_ids"],
+            )
+            return
+
+        # 场景 3: 时间窗口无数据
+        logger.warning(
+            "[HistoryQuery][Hint][TimeWindowNoData] parameter=%s pump_id=%s device_id=%s start=%s end=%s interval=%s suggestion=扩大时间范围或检查轮询写库是否正常",
+            parameter,
+            pump_id,
+            device_id,
+            start_iso,
+            stop_iso,
+            interval,
+        )
+
+    except Exception as probe_error:
+        logger.warning(
+            "[HistoryQuery][Hint][ProbeFailed] parameter=%s pump_id=%s device_id=%s error=%s",
+            parameter,
+            pump_id,
+            device_id,
+            probe_error,
+            exc_info=True,
+        )
+
+
 # ============================================================
 # 参数映射表: 前端参数 -> InfluxDB field
 # ============================================================
@@ -87,13 +210,25 @@ PARAMETER_MAPPING = {
 # 工具函数
 # ============================================================
 
+def _to_utc_datetime(value: datetime) -> datetime:
+    """将 datetime 统一转换为 UTC aware datetime。"""
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
+def _to_flux_rfc3339(value: datetime) -> str:
+    """转换为 Flux 可直接使用的 RFC3339 UTC 时间字符串。"""
+    return _to_utc_datetime(value).isoformat().replace("+00:00", "Z")
+
+
 def _parse_time_range(start: Optional[str], end: Optional[str], default_hours: int = 24):
     """解析时间范围"""
     if not end:
-        end_dt = datetime.utcnow()
+        end_dt = datetime.now(timezone.utc)
     else:
         try:
-            end_dt = datetime.fromisoformat(end.replace("Z", "+00:00"))
+            end_dt = _to_utc_datetime(datetime.fromisoformat(end.replace("Z", "+00:00")))
         except Exception:
             raise HTTPException(status_code=400, detail="Invalid end time format")
 
@@ -101,11 +236,11 @@ def _parse_time_range(start: Optional[str], end: Optional[str], default_hours: i
         start_dt = end_dt - timedelta(hours=default_hours)
     else:
         try:
-            start_dt = datetime.fromisoformat(start.replace("Z", "+00:00"))
+            start_dt = _to_utc_datetime(datetime.fromisoformat(start.replace("Z", "+00:00")))
         except Exception:
             raise HTTPException(status_code=400, detail="Invalid start time format")
 
-    return start_dt, end_dt, start_dt.isoformat() + "Z", end_dt.isoformat() + "Z"
+    return start_dt, end_dt, _to_flux_rfc3339(start_dt), _to_flux_rfc3339(end_dt)
 
 
 def _mock_series(start_dt: datetime, end_dt: datetime, interval_seconds: int, base: float, jitter: float, use_beijing_time: bool = False) -> List[Dict[str, Any]]:
@@ -267,6 +402,19 @@ async def get_waterpump_history(
         
         logger.info(f"Auto-calculated interval: {interval} (duration: {duration_seconds}s, target: {target_points} points)")
     
+    logger.info(
+        "[HistoryQuery] request parameter=%s pump_id=%s device_id=%s field=%s module=%s start=%s end=%s interval=%s mock=%s",
+        parameter,
+        pump_id,
+        device_id,
+        param_config["field"],
+        param_config["module"],
+        start_iso,
+        stop_iso,
+        interval,
+        settings.use_mock_data,
+    )
+
     # 5. 查询数据
     try:
         if settings.use_mock_data:
@@ -275,7 +423,13 @@ async def get_waterpump_history(
             base, jitter = _get_mock_base_value(parameter)
             data = _mock_series(start_dt, end_dt, interval_seconds, base, jitter)
             
-            logger.info(f"[Mock] Generated {len(data)} points for {parameter} (pump_id={pump_id})")
+            logger.info(
+                "[HistoryQuery][Mock] generated_points=%s parameter=%s pump_id=%s device_id=%s",
+                len(data),
+                parameter,
+                pump_id,
+                device_id,
+            )
             
             return {
                 "success": True,
@@ -300,6 +454,18 @@ async def get_waterpump_history(
             tags={"module_type": param_config["module"]}
         )
 
+        raw_summary = _summarize_raw_records(raw_data)
+        logger.info(
+            "[HistoryQuery][InfluxRaw] parameter=%s pump_id=%s device_id=%s raw_count=%s fields=%s module_types=%s device_ids=%s",
+            parameter,
+            pump_id,
+            device_id,
+            raw_summary["raw_count"],
+            raw_summary["fields"],
+            raw_summary["module_types"],
+            raw_summary["device_ids"],
+        )
+
         # 过滤指定字段的数据
         history_list = [
             {
@@ -310,7 +476,27 @@ async def get_waterpump_history(
             if record.get("field") == param_config["field"]
         ]
         
-        logger.info(f"[InfluxDB] Queried {len(history_list)} points for {parameter} (pump_id={pump_id})")
+        logger.info(
+            "[HistoryQuery][Filtered] parameter=%s pump_id=%s device_id=%s target_field=%s points=%s",
+            parameter,
+            pump_id,
+            device_id,
+            param_config["field"],
+            len(history_list),
+        )
+
+        if len(history_list) == 0:
+            _log_empty_data_hint(
+                parameter=parameter,
+                pump_id=pump_id,
+                device_id=device_id,
+                start_iso=start_iso,
+                stop_iso=stop_iso,
+                interval=interval,
+                target_field=param_config["field"],
+                target_module=param_config["module"],
+                raw_summary=raw_summary,
+            )
 
         return {
             "success": True,
@@ -326,7 +512,19 @@ async def get_waterpump_history(
         }
     
     except Exception as e:
-        logger.error(f"Error in get_waterpump_history: {e}", exc_info=True)
+        logger.error(
+            "[HistoryQuery][Error] parameter=%s pump_id=%s device_id=%s field=%s module=%s start=%s end=%s interval=%s error=%s",
+            parameter,
+            pump_id,
+            device_id,
+            param_config.get("field"),
+            param_config.get("module"),
+            start_iso,
+            stop_iso,
+            interval,
+            e,
+            exc_info=True,
+        )
         return {
             "success": False,
             "error": str(e),

@@ -13,8 +13,8 @@
 db_block:
   db_number: 3
   db_name: "DataState"
-  total_size: 80
-  description: "设备通信从站状态 (Slave Response Status)"
+  total_size: 76
+  description: "设备通信从站状态 (Slave Response Status) - PLC实际76字节"
 
 # 通用状态模块定义
 status_module:
@@ -101,50 +101,50 @@ devices:
 
   # ------------------------------------------------
   # 压力传感器 (PRESS)
-  # Offset: 52.0
+  # Offset: 48.0
   # ------------------------------------------------
   - device_id: "status_press"
     device_name: "总管压力状态"
     plc_name: "PRESS"
-    start_offset: 52
+    start_offset: 48
     data_device_id: "pump_pressure"
 
   # ------------------------------------------------
   # 震动传感器 (VIB 1-6)
-  # Offset: 56.0, 60.0 ...
+  # Offset: 52.0, 56.0, 60.0, 64.0, 68.0, 72.0
   # ------------------------------------------------
   - device_id: "status_vib_1"
     device_name: "1号泵震动状态"
     plc_name: "VIB_1"
-    start_offset: 56
+    start_offset: 52
     data_device_id: "pump_vibration_1"
 
   - device_id: "status_vib_2"
     device_name: "2号泵震动状态"
     plc_name: "VIB_2"
-    start_offset: 60
+    start_offset: 56
     data_device_id: "pump_vibration_2"
 
   - device_id: "status_vib_3"
     device_name: "3号泵震动状态"
     plc_name: "VIB_3"
-    start_offset: 64
+    start_offset: 60
     data_device_id: "pump_vibration_3"
 
   - device_id: "status_vib_4"
     device_name: "4号泵震动状态"
     plc_name: "VIB_4"
-    start_offset: 68
+    start_offset: 64
     data_device_id: "pump_vibration_4"
 
   - device_id: "status_vib_5"
     device_name: "5号泵震动状态"
     plc_name: "VIB_5"
-    start_offset: 72
+    start_offset: 68
     data_device_id: "pump_vibration_5"
 
   - device_id: "status_vib_6"
     device_name: "6号泵震动状态"
     plc_name: "VIB_6"
-    start_offset: 76
+    start_offset: 72
     data_device_id: "pump_vibration_6"

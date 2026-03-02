@@ -11,6 +11,11 @@ venv/
 env/
 .vscode/
 
+# 日志文件
+logs/
+*.log
+*.log.*
+
 # 本地缓存数据库
 data/cache.db
 data/*.db

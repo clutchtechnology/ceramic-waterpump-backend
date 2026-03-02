@@ -118,7 +118,7 @@ if Path('asserts').exists():
     shutil.copytree('asserts', dist_dir / 'asserts')
     print("[打包] 已复制 asserts/ 到根目录")
 
-# 创建 data/ 目录 (存放 cache.db / thresholds.json)
+# 创建 data/ 目录 (存放 thresholds.json)
 data_dir = dist_dir / 'data'
 data_dir.mkdir(exist_ok=True)
 # 复制 thresholds.json 默认配置

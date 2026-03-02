@@ -219,14 +219,16 @@ class MockDataGenerator:
     # DB3: 从站状态数据 (80 字节)
     # ============================================================
     def generate_db3_status(self) -> bytes:
-        """生成 DB3 从站状态数据 (80 字节)
+        """生成 DB3 从站状态数据 (76 字节, 19个设备)
 
         结构:
         - Byte 0, Bit 0: Error
         - Byte 2-3: Status (Word)
+        
+        19个设备 x 4字节 = 76字节
         """
-        data = bytearray(80)
-        device_offsets = list(range(0, 80, 4))
+        data = bytearray(76)
+        device_offsets = list(range(0, 76, 4))
 
         for idx, offset in enumerate(device_offsets):
             running = self._device_running[idx % len(self._device_running)]
@@ -244,15 +246,17 @@ class MockDataGenerator:
         return bytes(data)
     
     # ============================================================
-    # DB2: 传感器数据 (1034 字节)
+    # DB2: 传感器数据 (338 字节: 6电表 + 1压力)
     # ============================================================
     def generate_db2_sensors(self) -> bytes:
-        """生成 DB2 传感器数据 (1034 字节)
+        """生成 DB2 传感器数据 (338 字节)
         
         结构:
-        - 6 个水泵电表: 每个 56 字节 (14 个 REAL 值)
+        - 6 个水泵电表: 每个 56 字节 (14 个 REAL 值) = 336 字节
         - 压力传感器: 2 字节 (Word)
-        - 6 个振动传感器: 每个 116 字节
+        - 合计: 338 字节
+        
+        振动传感器在 DB4 (228字节), 不在 DB2 中
         
         电表字段 (每个 56 字节):
         - Uab, Ubc, Uca (线电压, 3x4=12B)
@@ -262,7 +266,7 @@ class MockDataGenerator:
         - Pa, Pb, Pc (分相功率, 3x4=12B)
         - ImpEp (累计电量, 4B)
         """
-        data = bytearray(1034)
+        data = bytearray(338)
         
         for idx in range(6):
             offset = idx * 56
@@ -329,47 +333,7 @@ class MockDataGenerator:
         pressure_raw = int(pressure_kpa / 0.01)  # kPa 转原始值
         data[336:338] = struct.pack(">H", min(65535, max(0, pressure_raw)))
 
-        # 振动传感器 (6个, 起始偏移 338, 模块大小 116字节)
-        # 只生成核心的 V/D/HZ 三组数据（9个字段）
-        vib_base_offsets = [338, 454, 570, 686, 802, 918]
-        for idx, base in enumerate(vib_base_offsets):
-            if not self._device_running[idx]:
-                # 设备未运行，振动为0
-                continue
-                
-            base_v = self._base_values['vibration'][idx] * self._load_factor[idx]
-            # 振动速度波动 ±35% (周期约1分钟)
-            vib_vx = self._add_sine_wave(base_v, amplitude=0.35, period=12)
-            vib_vy = self._add_sine_wave(base_v * 0.9, amplitude=0.35, period=12)
-            vib_vz = self._add_sine_wave(base_v * 1.1, amplitude=0.35, period=12)
-            
-            # 振动位移 (独立物理量)
-            base_d = self._base_values['displacement'][idx] * self._load_factor[idx]
-            dis_x = self._add_sine_wave(base_d, amplitude=0.30, period=3)
-            dis_y = self._add_sine_wave(base_d * 0.9, amplitude=0.30, period=3)
-            dis_z = self._add_sine_wave(base_d * 1.1, amplitude=0.30, period=3)
-            
-            freq = 50.0 + random.uniform(-5, 5)
-
-            def _write_word(offset: int, value: float, scale: float):
-                raw = int(max(0, min(65535, value / scale)))
-                data[base + offset: base + offset + 2] = struct.pack(">H", raw)
-
-            # 速度幅值 (mm/s) VX/VY/VZ - offset 12, 14, 16
-            _write_word(12, vib_vx, 1.0)
-            _write_word(14, vib_vy, 1.0)
-            _write_word(16, vib_vz, 1.0)
-
-            # 位移幅值 (um) DX/DY/DZ - offset 26, 28, 30
-            # 位移使用独立基准值，不从速度推导
-            _write_word(26, dis_x, 1.0)
-            _write_word(28, dis_y, 1.0)
-            _write_word(30, dis_z, 1.0)
-
-            # 频率 (Hz) HZX/HZY/HZZ - offset 32, 34, 36
-            _write_word(32, freq, 1.0)
-            _write_word(34, freq, 1.0)
-            _write_word(36, freq, 1.0)
+        # 振动传感器数据在 DB4 (generate_db4_vibration), 不在 DB2 中
         
         return bytes(data)
     

@@ -5,12 +5,12 @@ from .converter_base import BaseConverter
 class ElectricityConverter(BaseConverter):
     """三相电表数据转换器 (水泵房)
 
-    计算规则:
+    计算规则 (与磨料车间统一):
     - 电流互感器变比默认 20
     - 电压: raw x 0.1 (V)
-    - 电流: raw x 0.001 x 20 (A)
-    - 功率: raw x 2 (kW)
-    - 能耗: raw x 2 (kWh)
+    - 电流: raw x 0.001 x ratio (A)
+    - 功率: raw x 0.0001 x ratio (kW)
+    - 能耗: raw x ratio (kWh)
     
     输出字段 (8个):
     - Ua_0, Ua_1, Ua_2: A/B/C 相电压 (V)
@@ -23,8 +23,9 @@ class ElectricityConverter(BaseConverter):
 
     SCALE_VOLTAGE = 0.1
     SCALE_CURRENT = 0.001
-    SCALE_POWER = 2.0
-    SCALE_ENERGY = 2.0
+    # 功率: raw x 0.0001 x ratio -> kW
+    SCALE_POWER = 0.0001
+    SCALE_ENERGY = 2.0            # (未使用, 实际能耗公式: raw x ratio)
 
     # 默认变比 (用于电流计算)
     DEFAULT_RATIO = 20
@@ -41,9 +42,9 @@ class ElectricityConverter(BaseConverter):
             "I_0": round(self.get_field_value(raw_data, "I_0", 0.0) * self.SCALE_CURRENT * ratio, 2),
             "I_1": round(self.get_field_value(raw_data, "I_1", 0.0) * self.SCALE_CURRENT * ratio, 2),
             "I_2": round(self.get_field_value(raw_data, "I_2", 0.0) * self.SCALE_CURRENT * ratio, 2),
-            # 总有功功率 (kW)
-            "Pt": round(self.get_field_value(raw_data, "Pt", 0.0) * self.SCALE_POWER, 3),
-            # 正向有功电能 (kWh)
-            "ImpEp": round(self.get_field_value(raw_data, "ImpEp", 0.0) * self.SCALE_ENERGY, 3),
+            # 总有功功率: raw x 0.0001 x ratio -> kW
+            "Pt": round(self.get_field_value(raw_data, "Pt", 0.0) * self.SCALE_POWER * ratio, 3),
+            # 正向有功电能: raw x ratio -> kWh
+            "ImpEp": round(self.get_field_value(raw_data, "ImpEp", 0.0) * ratio, 2),
         }
 
