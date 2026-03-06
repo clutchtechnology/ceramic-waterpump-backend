@@ -67,13 +67,27 @@ def _get_mock_generator():
     return _mock_generator
 
 
+def _sync_read_plc_db1() -> Tuple[bool, bytes, str]:
+    """[sync] 同步读取 PLC DB1 - 在线程中执行"""
+    DB_NUMBER = 1
+    DB_SIZE = 80
+
+    plc = get_plc_manager()
+    if not plc.is_connected():
+        success, err = plc.connect()
+        if not success:
+            return (False, b"", f"PLC连接失败: {err}")
+
+    success, data, err = plc.read_db(DB_NUMBER, 0, DB_SIZE)
+    return (success, data, err)
+
+
 async def _read_plc_db1() -> Tuple[bool, bytes, str]:
     """读取 PLC DB1 主站状态块
     
     Returns:
         (成功标志, 原始字节数据, 错误信息)
     """
-    DB_NUMBER = 1
     DB_SIZE = 80
 
     if settings.use_mock_data:
@@ -81,6 +95,14 @@ async def _read_plc_db1() -> Tuple[bool, bytes, str]:
         db_data = generator.generate_all_db_data()
         db1_bytes = db_data.get(1, bytes(DB_SIZE))
         return (True, db1_bytes, "")
+
+    return await asyncio.to_thread(_sync_read_plc_db1)
+
+
+def _sync_read_plc_db3() -> Tuple[bool, bytes, str]:
+    """[sync] 同步读取 PLC DB3 - 在线程中执行"""
+    DB_NUMBER = 3
+    DB_SIZE = 76
 
     plc = get_plc_manager()
     if not plc.is_connected():
@@ -100,8 +122,7 @@ async def _read_plc_db3() -> Tuple[bool, bytes, str]:
     Returns:
         (成功标志, 原始字节数据, 错误信息)
     """
-    DB_NUMBER = 3
-    DB_SIZE = 76  # PLC 实际大小 (19个设备x4字节)
+    DB_SIZE = 76
 
     if settings.use_mock_data:
         generator = _get_mock_generator()
@@ -109,14 +130,7 @@ async def _read_plc_db3() -> Tuple[bool, bytes, str]:
         db3_bytes = db_data.get(3, bytes(DB_SIZE))
         return (True, db3_bytes, "")
 
-    plc = get_plc_manager()
-    if not plc.is_connected():
-        success, err = plc.connect()
-        if not success:
-            return (False, b"", f"PLC连接失败: {err}")
-
-    success, data, err = plc.read_db(DB_NUMBER, 0, DB_SIZE)
-    return (success, data, err)
+    return await asyncio.to_thread(_sync_read_plc_db3)
 
 
 def _has_status_changed(old_status: Dict[str, Any], new_status: Dict[str, Any]) -> bool:
@@ -284,7 +298,7 @@ async def start_status_polling():
         logger.info("[DB1/DB3状态] Mock模式启动")
     else:
         plc = get_plc_manager()
-        success, err = plc.connect()
+        success, err = await asyncio.to_thread(plc.connect)
         if success:
             logger.info("[DB1/DB3状态] PLC 连接成功")
         else:

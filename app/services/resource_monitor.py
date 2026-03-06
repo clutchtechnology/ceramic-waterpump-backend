@@ -156,7 +156,7 @@ async def _monitor_loop():
     
     while _is_monitoring:
         try:
-            stats = get_resource_stats()
+            stats = await asyncio.to_thread(get_resource_stats)
             _stats = stats
             
             # 打印告警（带抑制功能，避免刷屏）

@@ -157,6 +157,32 @@ def _build_latest_cache(parsed_db2: Dict[str, Any], parsed_db4: list, timestamp:
     return cache
 
 
+def _sync_read_plc_db2() -> Tuple[bool, bytes, str]:
+    """[sync] 同步读取 PLC DB2 数据块 - 在线程中执行"""
+    DB_NUMBER = 2
+    DB_SIZE = 338
+    MAX_READ_SIZE = 200
+
+    plc = get_plc_manager()
+    if not plc.is_connected():
+        success, err = plc.connect()
+        if not success:
+            return (False, b"", f"PLC连接失败: {err}")
+
+    all_data = bytearray()
+    offset = 0
+
+    while offset < DB_SIZE:
+        chunk_size = min(MAX_READ_SIZE, DB_SIZE - offset)
+        success, chunk_data, err = plc.read_db(DB_NUMBER, offset, chunk_size)
+        if not success:
+            return (False, bytes(all_data), f"读取偏移 {offset} 失败: {err}")
+        all_data.extend(chunk_data)
+        offset += chunk_size
+
+    return (True, bytes(all_data), "")
+
+
 async def _read_plc_db2() -> Tuple[bool, bytes, str]:
     """读取 PLC DB2 数据块 (6电表 + 1压力, 共338字节)
     
@@ -165,9 +191,7 @@ async def _read_plc_db2() -> Tuple[bool, bytes, str]:
     Returns:
         (成功标志, 原始字节数据, 错误信息)
     """
-    DB_NUMBER = 2
-    DB_SIZE = 338  # 6电表(6x56=336) + 1压力(2) = 338
-    MAX_READ_SIZE = 200  # PLC 单次读取最大字节数（保守值）
+    DB_SIZE = 338
     
     if settings.use_mock_data:
         generator = _get_mock_generator()
@@ -176,27 +200,33 @@ async def _read_plc_db2() -> Tuple[bool, bytes, str]:
         return (True, db2_bytes, "")
     
     else:
-        plc = get_plc_manager()
-        if not plc.is_connected():
-            success, err = plc.connect()
-            if not success:
-                return (False, b"", f"PLC连接失败: {err}")
-        
-        # 分块读取
-        all_data = bytearray()
-        offset = 0
-        
-        while offset < DB_SIZE:
-            chunk_size = min(MAX_READ_SIZE, DB_SIZE - offset)
-            success, chunk_data, err = plc.read_db(DB_NUMBER, offset, chunk_size)
-            
-            if not success:
-                return (False, bytes(all_data), f"读取偏移 {offset} 失败: {err}")
-            
-            all_data.extend(chunk_data)
-            offset += chunk_size
-        
-        return (True, bytes(all_data), "")
+        return await asyncio.to_thread(_sync_read_plc_db2)
+
+
+def _sync_read_plc_db4() -> Tuple[bool, bytes, str]:
+    """[sync] 同步读取 PLC DB4 数据块 - 在线程中执行"""
+    DB_NUMBER = 4
+    DB_SIZE = 228
+    MAX_READ_SIZE = 200
+
+    plc = get_plc_manager()
+    if not plc.is_connected():
+        success, err = plc.connect()
+        if not success:
+            return (False, b"", f"PLC连接失败: {err}")
+
+    all_data = bytearray()
+    offset = 0
+
+    while offset < DB_SIZE:
+        chunk_size = min(MAX_READ_SIZE, DB_SIZE - offset)
+        success, chunk_data, err = plc.read_db(DB_NUMBER, offset, chunk_size)
+        if not success:
+            return (False, bytes(all_data), f"DB4读取偏移 {offset} 失败: {err}")
+        all_data.extend(chunk_data)
+        offset += chunk_size
+
+    return (True, bytes(all_data), "")
 
 
 async def _read_plc_db4() -> Tuple[bool, bytes, str]:
@@ -205,9 +235,7 @@ async def _read_plc_db4() -> Tuple[bool, bytes, str]:
     Returns:
         (成功标志, 原始字节数据, 错误信息)
     """
-    DB_NUMBER = 4
     DB_SIZE = 228
-    MAX_READ_SIZE = 200
 
     if settings.use_mock_data:
         generator = _get_mock_generator()
@@ -216,24 +244,7 @@ async def _read_plc_db4() -> Tuple[bool, bytes, str]:
         return (True, db4_bytes, "")
 
     else:
-        plc = get_plc_manager()
-        if not plc.is_connected():
-            success, err = plc.connect()
-            if not success:
-                return (False, b"", f"PLC连接失败: {err}")
-
-        all_data = bytearray()
-        offset = 0
-
-        while offset < DB_SIZE:
-            chunk_size = min(MAX_READ_SIZE, DB_SIZE - offset)
-            success, chunk_data, err = plc.read_db(DB_NUMBER, offset, chunk_size)
-            if not success:
-                return (False, bytes(all_data), f"DB4读取偏移 {offset} 失败: {err}")
-            all_data.extend(chunk_data)
-            offset += chunk_size
-
-        return (True, bytes(all_data), "")
+        return await asyncio.to_thread(_sync_read_plc_db4)
 
 
 def _flush_buffer():
@@ -310,10 +321,10 @@ async def _data_poll_loop():
             
             _latest_data = _build_latest_cache(parsed_db2, parsed_db4, timestamp)
 
-            # 3.5 报警检测
+            # 3.5 报警检测 (在线程中执行，避免阻塞事件循环)
             try:
                 from app.services.alarm_checker import check_all_alarms
-                check_all_alarms(_latest_data, timestamp)
+                await asyncio.to_thread(check_all_alarms, _latest_data, timestamp)
             except Exception as e:
                 logger.error("[DB2数据] 报警检测异常: %s", e, exc_info=True)
             
@@ -366,9 +377,9 @@ async def _data_poll_loop():
             buffer_usage = len(_point_buffer) / 500
             if buffer_usage > 0.8:
                 logger.warning(f"[DB2数据] 缓冲区使用率过高: {buffer_usage*100:.1f}%，强制刷新")
-                _flush_buffer()
+                await asyncio.to_thread(_flush_buffer)
             elif len(_point_buffer) >= _batch_size:
-                _flush_buffer()
+                await asyncio.to_thread(_flush_buffer)
             
             # 5. 日志输出
             if settings.verbose_polling_log or poll_count % 10 == 0:
@@ -408,7 +419,7 @@ async def start_data_polling():
         logger.info("[DB2数据] Mock模式启动")
     else:
         plc = get_plc_manager()
-        success, err = plc.connect()
+        success, err = await asyncio.to_thread(plc.connect)
         if success:
             logger.info("[DB2数据] PLC 连接成功")
         else:
@@ -428,7 +439,7 @@ async def stop_data_polling():
     _is_data_running = False
     
     logger.info("[DB2数据] 正在刷新缓冲区...")
-    _flush_buffer()
+    await asyncio.to_thread(_flush_buffer)
     
     if _data_poll_task:
         _data_poll_task.cancel()

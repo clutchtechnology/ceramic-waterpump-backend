@@ -47,6 +47,10 @@ class ThresholdService:
         "frequency": {
             f"pump_{i}": {"normal_max": 50.0, "warning_max": 52.0}
             for i in range(1, 7)
+        },
+        "running_power": {
+            f"pump_{i}": 0.5
+            for i in range(1, 7)
         }
     }
     
@@ -132,6 +136,10 @@ class ThresholdService:
             if "pressure" in new_thresholds:
                 self._thresholds["pressure"] = new_thresholds["pressure"]
             
+            # 更新运行功率阈值
+            if "running_power" in new_thresholds:
+                self._thresholds["running_power"] = new_thresholds["running_power"]
+            
             # 保存到文件
             return self._save_thresholds()
         except Exception as e:
@@ -188,6 +196,21 @@ class ThresholdService:
                 if high_alarm <= low_alarm:
                     logger.warning("pressure: high_alarm <= low_alarm")
                     return False
+            
+            # 验证运行功率阈值
+            if "running_power" in thresholds:
+                rp_config = thresholds["running_power"]
+                if not isinstance(rp_config, dict):
+                    return False
+                for pump_id in range(1, 7):
+                    pump_key = f"pump_{pump_id}"
+                    if pump_key in rp_config:
+                        value = rp_config[pump_key]
+                        if not isinstance(value, (int, float)):
+                            return False
+                        if value < 0:
+                            logger.warning(f"running_power {pump_key}: value < 0")
+                            return False
             
             return True
         except Exception as e:

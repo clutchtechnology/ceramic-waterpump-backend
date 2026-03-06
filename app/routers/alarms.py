@@ -9,6 +9,7 @@
 from fastapi import APIRouter, Query
 from datetime import datetime
 from typing import Optional
+import asyncio
 import logging
 
 from app.core.alarm_store import query_alarms, get_alarm_count
@@ -45,7 +46,8 @@ async def get_alarm_records(
         if start_dt and end_dt and start_dt > end_dt:
             return {"success": False, "error": "start 不能晚于 end"}
 
-        records = query_alarms(
+        records = await asyncio.to_thread(
+            query_alarms,
             start_time=start_dt,
             end_time=end_dt,
             level=level,
@@ -67,7 +69,7 @@ async def get_count(
 ):
     """统计指定时长内的各级别报警数量"""
     try:
-        counts = get_alarm_count(hours=hours)
+        counts = await asyncio.to_thread(get_alarm_count, hours=hours)
         return {"success": True, "data": counts}
     except Exception as e:
         logger.error("[Alarm] 统计报警数量失败: %s", e, exc_info=True)

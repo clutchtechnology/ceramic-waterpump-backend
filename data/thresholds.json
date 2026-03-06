@@ -134,5 +134,13 @@
       "normal_max": 50.0,
       "warning_max": 52.0
     }
+  },
+  "running_power": {
+    "pump_1": 0.5,
+    "pump_2": 0.5,
+    "pump_3": 0.5,
+    "pump_4": 0.5,
+    "pump_5": 0.5,
+    "pump_6": 0.5
   }
 }

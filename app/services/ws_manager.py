@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 from typing import Dict, Set, Optional, Any
 from fastapi import WebSocket, WebSocketDisconnect
 from starlette.websockets import WebSocketState
+from app.core.threshold_store import load_thresholds
 
 from config import get_settings
 from app.services.polling_service_data_db2 import get_latest_data
@@ -199,6 +200,10 @@ class ConnectionManager:
         # Mock模式: 添加微小波动让数据实时变化 (轮询5s更新一次，推送0.1s一次)
         _n = self._mock_noise if is_mock else lambda v, *_: v
 
+        # 加载运行功率阈值配置
+        thresholds = load_thresholds()
+        running_power_config = thresholds.get("running_power", {})
+
         # 构建水泵数组 (电表数据)
         pumps = []
         for i in range(1, 7):
@@ -208,9 +213,10 @@ class ConnectionManager:
             # 获取电表数据
             electricity = pump_data.get("electricity", {})
             
-            # 计算运行状态 (通过功率判断)
+            # 计算运行状态 (通过功率与可配置阈值比较判断)
             power = _n(pump_data.get("power", 0.0))
-            status = "running" if power > 0.001 else "stopped"
+            running_threshold = running_power_config.get(pump_key, 0.5)
+            status = "running" if power >= running_threshold else "stopped"
             
             pumps.append({
                 "id": i,

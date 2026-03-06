@@ -91,6 +91,15 @@ _DEFAULT_THRESHOLDS: Dict[str, Any] = {
         "pump_5": {"normal_max": 1.0, "warning_max": 1.5},
         "pump_6": {"normal_max": 1.0, "warning_max": 1.5},
     },
+    # 4.9, 运行功率阈值 (6个泵, 功率 >= 此值判定为运行中)
+    "running_power": {
+        "pump_1": 0.5,
+        "pump_2": 0.5,
+        "pump_3": 0.5,
+        "pump_4": 0.5,
+        "pump_5": 0.5,
+        "pump_6": 0.5,
+    },
 }
 
 
@@ -167,7 +176,7 @@ def get_pump_threshold(pump_id: int, param_type: str) -> Optional[Dict[str, floa
     # 7.1, 参数验证
     if not (1 <= pump_id <= 6):
         return None
-    if param_type not in ("current", "voltage", "power", "speed", "displacement", "frequency", "vibration"):
+    if param_type not in ("current", "voltage", "power", "speed", "displacement", "frequency", "vibration", "running_power"):
         return None
     
     config = load_thresholds()

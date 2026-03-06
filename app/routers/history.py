@@ -8,6 +8,7 @@
 #   - 支持 Mock 数据和真实数据
 # ============================================================
 
+import asyncio
 import logging
 import random
 from datetime import datetime, timedelta, timezone
@@ -444,8 +445,9 @@ async def get_waterpump_history(
                 "data": data
             }
 
-        # 真实数据模式: 查询 InfluxDB
-        raw_data = query_data(
+        # 真实数据模式: 查询 InfluxDB (在线程中执行，避免阻塞事件循环)
+        raw_data = await asyncio.to_thread(
+            query_data,
             measurement="sensor_data",
             start_iso=start_iso,
             stop_iso=stop_iso,
@@ -486,7 +488,8 @@ async def get_waterpump_history(
         )
 
         if len(history_list) == 0:
-            _log_empty_data_hint(
+            await asyncio.to_thread(
+                _log_empty_data_hint,
                 parameter=parameter,
                 pump_id=pump_id,
                 device_id=device_id,

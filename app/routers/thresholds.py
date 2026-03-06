@@ -22,6 +22,7 @@ class ThresholdUpdateRequest(BaseModel):
     speed: Optional[Dict[str, Dict[str, float]]] = None
     displacement: Optional[Dict[str, Dict[str, float]]] = None
     frequency: Optional[Dict[str, Dict[str, float]]] = None
+    running_power: Optional[Dict[str, float]] = None
 
 
 @router.get("")

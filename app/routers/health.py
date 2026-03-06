@@ -2,6 +2,7 @@
 # 文件说明: health.py - 健康检查和系统状态 API
 # ============================================================
 
+import asyncio
 import logging
 from datetime import datetime
 from fastapi import APIRouter
@@ -43,13 +44,13 @@ async def health():
         # 1.1, 尝试调用 ping 或 health 端点
         try:
             # 优先使用 ping (不需要认证)
-            ping_result = client.ping()
+            ping_result = await asyncio.to_thread(client.ping)
             influx_online = ping_result
             influx_status = "ok" if ping_result else "error"
             logger.debug(f"InfluxDB ping: {ping_result}")
         except AttributeError:
             # 如果没有 ping 方法，使用 health
-            health_result = client.health()
+            health_result = await asyncio.to_thread(client.health)
             influx_online = True
             influx_status = "ok" if health_result.status == "pass" else "degraded"
             logger.debug(f"InfluxDB health check: {health_result.status}")
